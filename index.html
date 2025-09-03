@@ -37,8 +37,8 @@
     .meta{color:var(--muted);font-size:.9rem;margin-top:8px;}
 
     /* move list / card */
-    .move-card{margin-bottom:8px;border-radius:10px;padding:10px;background:#0f1718;}
-    .move-cat{font-weight:700;padding:6px 8px;border-radius:6px;font-size:.8rem;}
+    .move-card{margin-bottom:8px;border-radius:10px;padding:10px;background:#0f1718;display:flex;align-items:center;gap:10px;cursor:pointer;}
+    .move-cat{font-weight:700;padding:6px 8px;border-radius:6px;font-size:.8rem;display:inline-flex;align-items:center;gap:8px;}
     .cat-Brilliant{background:#ffdd57;color:#1f1a00;}
     .cat-Great{background:#b6f19c;color:#05320a;}
     .cat-Best{background:#9ad0ff;color:#01243a;}
@@ -46,11 +46,22 @@
     .cat-Miss{background:#ffd1a8;color:#3a1700;}
     .cat-Blunder{background:#ff9aa2;color:#3a0006;}
     .cat-Inaccuracy{background:#f0f0f0;color:#222;}
+    .cat-Equal{background:#222;color:#ddd;}
 
     .analysis-text{color:#dfeff0;margin-top:6px;white-space:pre-wrap;}
 
-    /* small */
+    /* player avatars */
+    .player-box{display:flex;gap:10px;align-items:center;margin-top:8px}
+    .player-avatar{width:48px;height:48px;border-radius:50%;overflow:hidden;flex-shrink:0}
+    .player-avatar img{width:100%;height:100%;object-fit:cover}
+
     .small-muted{color:var(--muted);font-size:.85rem;}
+    .stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .stat-pill{background:#0c1716;padding:6px 8px;border-radius:999px;font-weight:600;font-size:.9rem}
+
+    /* small icon in move list */
+    .cat-icon{width:22px;height:22px;border-radius:50%;display:inline-block;overflow:hidden;flex-shrink:0}
+    .cat-icon img{width:100%;height:100%;object-fit:cover}
   </style>
 </head>
 <body>
@@ -61,26 +72,27 @@
     <div class="card" style="padding:14px;margin-bottom:14px;">
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
         <div style="flex:1;">
-          <div class="small-muted">Paste PGN (supports standard exported PGN with headers)</div>
+          <div class="small-muted">Paste PGN (supports exported PGN with headers)</div>
           <textarea id="pgnInput" placeholder='Paste PGN here. Example:
 [Event "Game"]
 [White "player1"]
 [Black "player2"]
 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 ...'></textarea>
         </div>
-        <div style="width:260px;">
+        <div style="width:300px;">
           <div class="small-muted">Controls</div>
           <div style="display:flex;flex-direction:column;gap:8px;">
             <button id="analyzeBtn" class="btn btn-success">Analyze PGN</button>
             <button id="clearBtn" class="btn btn-ghost">Clear</button>
             <div class="meta" id="pgnMeta"></div>
+            <div class="small-muted" style="margin-top:8px">Pieces are loaded from CDN (Wikipedia set).</div>
           </div>
         </div>
       </div>
     </div>
 
     <div class="grid">
-      <!-- left: board + analysis text -->
+      <!-- left: board + current analysis -->
       <div>
         <div class="card" style="padding:12px;margin-bottom:12px;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -111,14 +123,9 @@
           </div>
         </div>
 
-        <div class="card" style="padding:12px;">
-          <h5>Moves & Analysis</h5>
-          <div class="small-muted">Per-move AI analysis. Click a move to jump to that position.</div>
-          <div id="movesList" style="margin-top:12px;max-height:400px;overflow:auto;padding-right:6px;"></div>
-        </div>
       </div>
 
-      <!-- right: progress + summary -->
+      <!-- right: progress + players + move-list summary -->
       <div>
         <div class="card" style="padding:12px;margin-bottom:12px;">
           <h5>Analysis Progress</h5>
@@ -129,17 +136,39 @@
         </div>
 
         <div class="card" style="padding:12px;margin-bottom:12px;">
-          <h5>Summary</h5>
-          <div id="summaryBox" class="small-muted" style="margin-top:8px;">No summary yet.</div>
+          <h5>Players & Stats</h5>
+          <div id="playersCard" style="margin-top:8px">
+            <div class="player-box">
+              <div class="player-avatar"><img id="whiteAvatar" src="https://picsum.photos/seed/white/64" alt="white"/></div>
+              <div style="flex:1">
+                <div><strong id="whiteName">White</strong></div>
+                <div class="small-muted" id="whiteAccuracy">Accuracy: —</div>
+                <div class="stat-row" id="whiteStats"></div>
+              </div>
+            </div>
+
+            <hr style="border-color:#0b1514;margin:10px 0"/>
+
+            <div class="player-box">
+              <div class="player-avatar"><img id="blackAvatar" src="https://picsum.photos/seed/black/64" alt="black"/></div>
+              <div style="flex:1">
+                <div><strong id="blackName">Black</strong></div>
+                <div class="small-muted" id="blackAccuracy">Accuracy: —</div>
+                <div class="stat-row" id="blackStats"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:12px;margin-bottom:12px;">
+          <h5>Moves (click to jump)</h5>
+          <div class="small-muted">Click a move to jump to its position. Comments appear under the board.</div>
+          <div id="movesList" style="margin-top:12px;max-height:440px;overflow:auto;padding-right:6px;"></div>
         </div>
 
         <div class="card" style="padding:12px;">
-          <h5>Settings</h5>
-          <div style="margin-top:8px;">
-            <div class="small-muted">Model:</div>
-            <div style="margin-top:6px;"><strong>openai/gpt-oss-120b:together</strong></div>
-            <div class="small-muted" style="margin-top:8px">Server proxy (this app): <code>/api/query</code></div>
-          </div>
+          <h5>Summary</h5>
+          <div id="summaryBox" class="small-muted" style="margin-top:8px;">No summary yet.</div>
         </div>
 
       </div>
@@ -157,13 +186,31 @@
   <script src="./chess.js"></script>
 
   <script>
+    /* ============================
+       UPDATED: pieces & category icons via CDN
+       Pieces use chessboardjs Wikipedia set via UNPKG CDN.
+       Category icons use Bootstrap Icons CDN (jsDelivr).
+       ============================ */
+
+    // Category icon mapping (Bootstrap Icons via jsDelivr)
+    const categoryIconMap = {
+      'Brilliant': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/star-fill.svg',
+      'Great': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/trophy-fill.svg',
+      'Best': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/check-circle-fill.svg',
+      'Inaccuracy': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/dash-circle-fill.svg',
+      'Mistake': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/exclamation-triangle-fill.svg',
+      'Miss': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/question-circle-fill.svg',
+      'Blunder': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/x-circle-fill.svg',
+      'Equal': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/record-circle-fill.svg'
+    };
+
     // --- App state
     let boardWidget = null;
     let game = null; // chess.js instance for stepping
     let movesSAN = []; // SAN array
-    let fens = []; // FEN after each move (1-based index: index0 = starting pos fen, index i = after i-th halfmove)
-    let analysisResults = []; // parallel array for move analysis objects
-    let currentIndex = 0; // 0 = startpos, 1 = after 1st halfmove, etc.
+    let fens = []; // FEN after each halfmove (index 0 = startpos)
+    let analysisResults = []; // per-halfmove analysis objects
+    let currentIndex = 0; // 0 = startpos, 1 = after 1st halfmove...
     let undoStack = [], redoStack = [];
 
     // DOM nodes
@@ -179,6 +226,15 @@
     const pgnMeta = document.getElementById('pgnMeta');
     const summaryBox = document.getElementById('summaryBox');
 
+    const whiteNameEl = document.getElementById('whiteName');
+    const blackNameEl = document.getElementById('blackName');
+    const whiteAvatar = document.getElementById('whiteAvatar');
+    const blackAvatar = document.getElementById('blackAvatar');
+    const whiteAccuracyEl = document.getElementById('whiteAccuracy');
+    const blackAccuracyEl = document.getElementById('blackAccuracy');
+    const whiteStatsEl = document.getElementById('whiteStats');
+    const blackStatsEl = document.getElementById('blackStats');
+
     // control buttons
     const firstBtn = document.getElementById('firstBtn');
     const prevBtn = document.getElementById('prevBtn');
@@ -187,13 +243,14 @@
     const undoBtn = document.getElementById('undoBtn');
     const redoBtn = document.getElementById('redoBtn');
 
-    // init chessboard
+    // init chessboard using CDN piece images
     function initBoard(){
-      if(boardWidget) boardWidget.destroy();
+      if(boardWidget && typeof boardWidget.destroy === 'function') boardWidget.destroy();
+      const themeUrl = 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png';
       boardWidget = Chessboard('board', {
         draggable: false,
         position: 'start',
-        pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png'
+        pieceTheme: themeUrl
       });
     }
     initBoard();
@@ -211,14 +268,11 @@
 
     // parse PGN -> generate moves & fens
     function parsePGNandBuild(pgn){
-      // create a temp chess object to get moves SAN array
       const temp = new Chess();
       const ok = temp.load_pgn(pgn);
       if(!ok) throw new Error('Invalid PGN: could not load');
-      const historySAN = temp.history(); // array of san strings
-      // detect setup
+      const historySAN = temp.history(); // half-move SAN array
       const headers = parseHeaders(pgn);
-      // create base game to step (respect Setup/FEN if present)
       const g = new Chess();
       if(headers.SetUp === '1' && headers.FEN){
         const loaded = g.load(headers.FEN);
@@ -226,156 +280,174 @@
       } else {
         g.reset();
       }
-      // starting fen
       const fensLocal = [g.fen()];
       const movesLocal = [];
-      // step through history and record fens after each halfmove
       for(const san of historySAN){
         const res = g.move(san);
-        if(!res){
-          throw new Error('Failed to apply move: '+san);
-        }
+        if(!res) throw new Error('Failed to apply move: '+san);
         movesLocal.push(san);
         fensLocal.push(g.fen());
       }
       return { headers, movesSAN: movesLocal, fens: fensLocal };
     }
 
-    // helper to set progress
     function setProgress(pct, text){
       progressBar.style.width = pct + '%';
       progressText.textContent = text;
     }
 
-    // build prompt messages for server (we ask for strict JSON)
+    // Build prompt messages for server
     function buildMessages(fen, san, plyIndex){
       const system = {
         role: "system",
         content: `You are GConnect Chess Analysis Assistant.
-You must output EXACTLY one JSON object (no extra text). The JSON must have keys:
-- category: one of ["Brilliant","Great","Best","Inaccuracy","Mistake","Miss","Blunder","Equal"] (choose the most appropriate)
-- score: an integer centipawn evaluation (optional, can be null)
-- comment: short explanation (1-3 sentences) about why this move is categorized as such and any tactical/strategic idea.
-Return only JSON, nothing else.`
+You MUST output a compact JSON object ONLY (no extra narrative). JSON keys: category, score, comment.
+category must be one of ["Brilliant","Great","Best","Inaccuracy","Mistake","Miss","Blunder","Equal"].
+score: integer centipawn (or null). comment: short (max 2 sentences) positive/constructive explanation for the move. For good moves, add a short inspiring phrase (one-liner). Keep output strictly JSON.`
       };
       const user = {
         role: "user",
         content: `Position FEN: ${fen}
 Move SAN: ${san}
 Ply index: ${plyIndex}
-Please evaluate the move in context of this exact position and output JSON as requested.`
+Context: Evaluate this move only and output a single JSON object as described. Keep comment concise and avoid braces or extra metadata.`
       };
       return [system, user];
     }
 
-    // call server proxy (POST /api/query) - returns parsed object {category, score, comment}
+    // analyze single move via server with retries
     async function analyzeMove(fen, san, plyIndex){
-      try {
-        const messages = buildMessages(fen, san, plyIndex);
-        const resp = await fetch('/api/query', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ messages, model: "openai/gpt-oss-120b:together", max_tokens:400 })
-        });
-        if(!resp.ok) throw new Error('Server failed: '+resp.status);
-        const json = await resp.json();
-        // try to extract replyText or raw. Our server will return { result, replyText }
-        let txt = '';
-        if(json.replyText) txt = json.replyText;
-        else if(json.result && typeof json.result === 'string') txt = json.result;
-        else if(json.result && json.result.choices && json.result.choices[0] && json.result.choices[0].message) txt = json.result.choices[0].message.content;
-        else if(typeof json === 'string') txt = json;
-        // try parse JSON inside text
+      const maxRetries = 3;
+      let attempt = 0;
+      while(attempt < maxRetries){
+        attempt++;
         try {
-          const parsed = JSON.parse(txt.trim());
-          return parsed;
-        } catch(parseErr){
-          // try to extract a JSON substring
-          const m = txt.match(/\{[\s\S]*\}/);
-          if(m){
-            try { return JSON.parse(m[0]); } catch(e){}
+          const messages = buildMessages(fen, san, plyIndex);
+          const resp = await fetch('/api/query', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ messages, model: "openai/gpt-oss-120b:together", max_tokens:300, temperature:0.2 })
+          });
+          if(!resp.ok) throw new Error('Server returned '+resp.status);
+          const json = await resp.json();
+          let txt = json.replyText || '';
+          if(!txt && json.result && json.result.choices && json.result.choices[0] && json.result.choices[0].message){
+            txt = json.result.choices[0].message.content || '';
           }
-          // fallback: return as comment only
-          return { category: "Equal", score: null, comment: txt.trim().slice(0,800) };
+          // extract JSON object from response
+          let parsed = null;
+          try {
+            parsed = JSON.parse(txt.trim());
+          } catch(e){
+            const m = txt.match(/\{[\s\S]*\}/);
+            if(m){
+              try { parsed = JSON.parse(m[0]); } catch(e2){ parsed = null; }
+            }
+          }
+          if(parsed && typeof parsed === 'object'){
+            const category = (parsed.category || 'Equal').toString().trim();
+            const score = (typeof parsed.score === 'number') ? parsed.score : (parsed.score ? Number(parsed.score) : null);
+            let comment = (parsed.comment || '').toString().trim();
+            comment = comment.replace(/^[\s"'`]+|[\s"'`]+$/g,'');
+            const sentences = comment.split(/(?<=\.)\s+/);
+            comment = sentences.slice(0,2).join(' ').trim();
+            if(['Brilliant','Great','Best'].includes(category)){
+              if(!/well|good|strong|brilliant|excellent/i.test(comment)){
+                comment += ' Great idea — well played!';
+              }
+            }
+            return { category, score, comment };
+          } else {
+            let fallbackComment = (txt || '').toString().trim().replace(/\s+/g,' ').slice(0,500);
+            fallbackComment = fallbackComment.replace(/^[\s"']+|[\s"']+$/g,'');
+            return { category: 'Equal', score: null, comment: fallbackComment || 'No clear analysis.' };
+          }
+        } catch(err){
+          console.warn('analyze attempt',attempt,'failed:',err);
+          if(attempt >= maxRetries){
+            return { category: 'Equal', score: null, comment: 'Analysis failed after retries.' };
+          }
+          await new Promise(r=>setTimeout(r, 600 * attempt));
         }
-      } catch(err){
-        console.error('analyzeMove error',err);
-        return { category: "Equal", score: null, comment: "Analysis failed: "+(err.message||err) };
       }
+      return { category: 'Equal', score: null, comment: 'Analysis unavailable.' };
     }
 
-    // render moves list and clickable entries
+    // render compact moves list on the right
     function renderMovesList(){
       movesList.innerHTML = '';
       for(let i=0;i<movesSAN.length;i++){
-        const moveIndex = i+1;
+        const ply = i+1;
         const san = movesSAN[i];
         const analysis = analysisResults[i] || {};
-        const div = document.createElement('div');
-        div.className = 'move-card';
-        div.dataset.index = moveIndex;
         const cat = analysis.category || '—';
-        const comment = analysis.comment ? analysis.comment.slice(0,160) : 'Waiting...';
-        const catCls = 'cat-' + (cat.replace(/\s+/g,'') || 'Equal');
-        div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;">
-            <div><strong>${moveIndex}.</strong> ${san}</div>
-            <div class="move-cat ${catCls}">${cat}</div>
+        const comment = analysis.comment ? analysis.comment.slice(0,120) : 'Waiting...';
+        const catClass = 'cat-' + (String(cat).replace(/\s+/g,'') || 'Equal');
+        const pivot = document.createElement('div');
+        pivot.className = 'move-card';
+        // icon
+        const iconUrl = categoryIconMap[cat] || categoryIconMap['Equal'];
+        pivot.innerHTML = `
+          <div style="width:44px;display:flex;flex-direction:column;align-items:center;">
+            <div style="font-size:.9rem">${ply}</div>
+            <div style="font-size:.75rem;color:var(--muted);">${(ply%2===1)?'W':'B'}</div>
           </div>
-          <div class="analysis-text">${escapeHtml(comment)}</div>`;
-        div.onclick = ()=>{
-          // jump to that ply (fens index aligned)
-          const idx = parseInt(div.dataset.index,10);
-          setPosition(idx);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        };
-        movesList.appendChild(div);
+          <div style="width:40px;display:flex;align-items:center;justify-content:center;">
+            <div class="cat-icon"><img src="${iconUrl}" alt="${escapeHtml(cat)}"></div>
+          </div>
+          <div style="flex:1">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div><strong>${escapeHtml(san)}</strong></div>
+              <div><span class="move-cat ${catClass}">${escapeHtml(cat)}</span></div>
+            </div>
+            <div class="analysis-text" style="font-size:.9rem;color:#cfeee0">${escapeHtml(comment)}</div>
+          </div>
+        `;
+        pivot.onclick = () => setPosition(ply);
+        movesList.appendChild(pivot);
       }
     }
 
-    // safe escape
     function escapeHtml(s){
       if(!s) return '';
       return String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];});
     }
 
-    // update UI for current index
     function updateUI(){
-      moveIndexEl.textContent = `Move ${currentIndex} / ${fens.length-1}`;
-      // set board to fen
+      moveIndexEl.textContent = `Move ${currentIndex} / ${Math.max(0, fens.length-1)}`;
       const fen = fens[currentIndex];
       boardWidget.position(fen);
-      // update current analysis (if currentIndex==0 -> startpos)
       if(currentIndex === 0){
         currentCategory.innerHTML = '';
         currentComment.textContent = 'Start position.';
       } else {
         const analysis = analysisResults[currentIndex-1] || {category:'—',comment:'Waiting...'};
-        // styled category
         const cat = analysis.category || '—';
-        currentCategory.innerHTML = `<span class="move-cat cat-${cat.replace(/\s+/g,'')}">${escapeHtml(cat)}</span>`;
+        const iconUrl = categoryIconMap[cat] || categoryIconMap['Equal'];
+        currentCategory.innerHTML = `<span class="move-cat cat-${String(cat).replace(/\s+/g,'')}"><span class="cat-icon" style="margin-right:6px;"><img src="${iconUrl}" alt="${escapeHtml(cat)}"></span> ${escapeHtml(cat)}</span>`;
         currentComment.textContent = analysis.comment || 'Waiting for analysis...';
       }
-      // highlight selected move card
-      Array.from(movesList.children).forEach(el=>{
-        if(parseInt(el.dataset.index,10) === currentIndex) el.style.outline = '2px solid rgba(255,255,255,.04)';
-        else el.style.outline = 'none';
+      // highlight current in moves list
+      Array.from(movesList.children).forEach((el, idx) => {
+        const plyShown = idx+1;
+        if(plyShown === currentIndex) {
+          el.style.outline = '2px solid rgba(255,255,255,.04)';
+        } else el.style.outline = 'none';
       });
     }
 
-    // setPosition to ply index (0...fens.length-1)
     function setPosition(idx){
       if(idx < 0) idx = 0;
       if(idx > fens.length-1) idx = fens.length-1;
-      // push to undo stack current index
       undoStack.push(currentIndex);
       currentIndex = idx;
       redoStack = [];
       updateUI();
     }
 
-    // navigation controls
+    // nav
     firstBtn.onclick = ()=> setPosition(0);
-    lastBtn.onclick = ()=> setPosition(fens.length-1);
+    lastBtn.onclick = ()=> setPosition(Math.max(0, fens.length-1));
     prevBtn.onclick = ()=> setPosition(Math.max(0, currentIndex-1));
     nextBtn.onclick = ()=> setPosition(Math.min(fens.length-1, currentIndex+1));
     undoBtn.onclick = ()=>{
@@ -393,48 +465,78 @@ Please evaluate the move in context of this exact position and output JSON as re
       }
     };
 
-    // main analyze flow
+    // compute players stats & accuracy and update players card
+    function computeStatsAndRender(){
+      const whiteCounts = {}; const blackCounts = {};
+      const allCats = ['Brilliant','Great','Best','Inaccuracy','Mistake','Miss','Blunder','Equal'];
+      allCats.forEach(c=>{ whiteCounts[c]=0; blackCounts[c]=0; });
+      for(let i=0;i<analysisResults.length;i++){
+        const a = analysisResults[i] || { category:'Equal' };
+        const cat = a.category || 'Equal';
+        const ply = i+1;
+        if(ply % 2 === 1) whiteCounts[cat] = (whiteCounts[cat]||0)+1;
+        else blackCounts[cat] = (blackCounts[cat]||0)+1;
+      }
+      const whiteTotal = Object.values(whiteCounts).reduce((s,v)=>s+v,0) || 0;
+      const blackTotal = Object.values(blackCounts).reduce((s,v)=>s+v,0) || 0;
+      const whiteErrors = (whiteCounts['Mistake']||0) + (whiteCounts['Miss']||0) + (whiteCounts['Blunder']||0);
+      const blackErrors = (blackCounts['Mistake']||0) + (blackCounts['Miss']||0) + (blackCounts['Blunder']||0);
+      const whiteAcc = whiteTotal ? Math.max(0, Math.round((1 - (whiteErrors/whiteTotal))*100)) : '—';
+      const blackAcc = blackTotal ? Math.max(0, Math.round((1 - (blackErrors/blackTotal))*100)) : '—';
+      whiteAccuracyEl.textContent = `Accuracy: ${whiteAcc === '—' ? '—' : whiteAcc + '%'}`;
+      blackAccuracyEl.textContent = `Accuracy: ${blackAcc === '—' ? '—' : blackAcc + '%'}`;
+      whiteStatsEl.innerHTML = '';
+      blackStatsEl.innerHTML = '';
+      allCats.forEach(c=>{
+        if(whiteCounts[c]){
+          const el = document.createElement('div'); el.className='stat-pill'; el.textContent = `${c}: ${whiteCounts[c]}`; whiteStatsEl.appendChild(el);
+        }
+        if(blackCounts[c]){
+          const el2 = document.createElement('div'); el2.className='stat-pill'; el2.textContent = `${c}: ${blackCounts[c]}`; blackStatsEl.appendChild(el2);
+        }
+      });
+      const totalMoves = analysisResults.length;
+      summaryBox.textContent = `Total half-moves: ${totalMoves} • White: ${whiteTotal} • Black: ${blackTotal}`;
+    }
+
+    // Main analyze flow
     analyzeBtn.onclick = async ()=>{
       const pgn = pgnInput.value.trim();
       if(!pgn){ alert('Please paste PGN first.'); return; }
       try {
         setProgress(2,'Parsing PGN...');
-        // parse
         const res = parsePGNandBuild(pgn);
         movesSAN = res.movesSAN;
-        fens = res.fens; // fens[0] = starting fen
+        fens = res.fens;
+        // safety: ensure we handle long games; allocate arrays accordingly
         analysisResults = new Array(movesSAN.length).fill(null);
         currentIndex = 0;
         initBoard();
         boardWidget.position(fens[0]);
-        renderMovesList();
         updateUI();
+        // headers
         pgnMeta.textContent = `${res.headers.White || 'White'} vs ${res.headers.Black || 'Black'} • Moves: ${movesSAN.length}`;
+        whiteNameEl.textContent = res.headers.White || 'White';
+        blackNameEl.textContent = res.headers.Black || 'Black';
+        whiteAvatar.src = `https://picsum.photos/seed/${encodeURIComponent(res.headers.White||'white')}/64`;
+        blackAvatar.src = `https://picsum.photos/seed/${encodeURIComponent(res.headers.Black||'black')}/64`;
+
         // analyze sequentially
         for(let i=0;i<movesSAN.length;i++){
-          const pct = Math.round((i / movesSAN.length) * 100);
-          setProgress(pct, `Analyzing move ${i+1} / ${movesSAN.length} ...`);
-          const fenBefore = fens[i]; // position before applying move i+1
+          const ply = i+1;
+          const pct = Math.round(((i+1) / movesSAN.length) * 100);
+          setProgress(pct, `Analyzing move ${ply} / ${movesSAN.length} ...`);
+          const fenBefore = fens[i];
           const san = movesSAN[i];
-          const plyIndex = i+1;
-          // call analyzeMove (server)
-          const out = await analyzeMove(fenBefore, san, plyIndex);
+          const out = await analyzeMove(fenBefore, san, ply);
           analysisResults[i] = out;
-          // update UI partial
           renderMovesList();
-          // update current if currently at that move
+          computeStatsAndRender();
           updateUI();
         }
         setProgress(100,'Analysis complete');
-        // build short summary (count categories)
-        const counts = {};
-        for(const a of analysisResults){
-          const cat = (a && a.category) ? a.category : 'Equal';
-          counts[cat] = (counts[cat]||0)+1;
-        }
-        summaryBox.innerHTML = Object.entries(counts).map(([k,v])=>`${k}: ${v}`).join(' • ');
-        // final render
         renderMovesList();
+        computeStatsAndRender();
         updateUI();
       } catch(err){
         console.error(err);
@@ -454,11 +556,18 @@ Please evaluate the move in context of this exact position and output JSON as re
       currentCategory.innerHTML = '';
       currentComment.textContent = 'No analysis yet.';
       moveIndexEl.textContent = 'Move 0 / 0';
+      whiteNameEl.textContent = 'White';
+      blackNameEl.textContent = 'Black';
+      whiteAvatar.src = 'https://picsum.photos/seed/white/64';
+      blackAvatar.src = 'https://picsum.photos/seed/black/64';
+      whiteStatsEl.innerHTML = '';
+      blackStatsEl.innerHTML = '';
+      whiteAccuracyEl.textContent = 'Accuracy: —';
+      blackAccuracyEl.textContent = 'Accuracy: —';
     };
 
-    // small helper: analyzeMove wrapper uses debounce/queue if needed (already used)
-    // initial state
+    // initial UI
     setProgress(0,'Idle');
   </script>
 </body>
-</html>
+            </html>
