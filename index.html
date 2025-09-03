@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -10,18 +10,18 @@
         href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
         crossorigin="anonymous">
 
-  <!-- Bootstrap (for cards/buttons) -->
+  <!-- Bootstrap CSS (for basic layout) -->
   <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"/>
 
   <style>
     :root{
       --bg:#0f1416; --card:#13181a; --muted:#9aa4a8; --accent:#00b894;
     }
-    html,body{height:100%;background:var(--bg);color:#e6eef0;font-family:Inter,Helvetica,Arial,sans-serif;}
-    .container{padding:18px;max-width:1200px;}
+    html,body{height:100%;background:var(--bg);color:#e6eef0;font-family:Inter,Helvetica,Arial,sans-serif;margin:0;padding:0;}
+    .container{padding:18px;max-width:1200px;margin:0 auto;}
+    h3{margin-bottom:12px;}
     .card{background:var(--card);border:none;border-radius:12px;color:inherit;box-shadow:0 6px 18px rgba(0,0,0,.6);}
-    .card h5{color:#fff;}
-    textarea{background:transparent;border:1px solid #223;min-height:110px;color:inherit;padding:12px;border-radius:8px;}
+    textarea{background:transparent;border:1px solid #223;min-height:110px;color:inherit;padding:12px;border-radius:8px;width:100%;}
     .progress {height:10px;background:#0a0d0e;border-radius:6px;overflow:hidden;}
     .progress-bar{background:linear-gradient(90deg,#00b894,#2dd4bf);}
 
@@ -59,33 +59,35 @@
     .stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
     .stat-pill{background:#0c1716;padding:6px 8px;border-radius:999px;font-weight:600;font-size:.9rem}
 
-    /* small icon in move list */
+    /* cat icon */
     .cat-icon{width:22px;height:22px;border-radius:50%;display:inline-block;overflow:hidden;flex-shrink:0}
     .cat-icon img{width:100%;height:100%;object-fit:cover}
+
+    /* small responsive tweaks */
+    .controls .btn{font-size:.9rem;padding:.35rem .6rem;}
   </style>
 </head>
 <body>
   <div class="container">
+    <h3>GConnect — Chess Analysis Board</h3>
 
-    <h3 style="margin-bottom:14px;">GConnect — Chess Analysis Board</h3>
-
-    <div class="card" style="padding:14px;margin-bottom:14px;">
+    <div class="card p-3 mb-3">
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
         <div style="flex:1;">
-          <div class="small-muted">Paste PGN (supports exported PGN with headers)</div>
-          <textarea id="pgnInput" placeholder='Paste PGN here. Example:
+          <div class="small-muted">PGN পেস্ট করুন (header included হলে player নামও পড়ে নিবে)</div>
+          <textarea id="pgnInput" placeholder='উদাহরণ:
 [Event "Game"]
 [White "player1"]
 [Black "player2"]
 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 ...'></textarea>
         </div>
         <div style="width:300px;">
-          <div class="small-muted">Controls</div>
           <div style="display:flex;flex-direction:column;gap:8px;">
             <button id="analyzeBtn" class="btn btn-success">Analyze PGN</button>
             <button id="clearBtn" class="btn btn-ghost">Clear</button>
-            <div class="meta" id="pgnMeta"></div>
-            <div class="small-muted" style="margin-top:8px">Pieces are loaded from CDN (Wikipedia set).</div>
+            <div id="pgnMeta" class="meta"></div>
+            <div class="small-muted" style="margin-top:8px">Pieces are loaded from local <code>./pieces/{piece}.svg</code> (e.g. wK.svg bP.svg).</div>
+            <div class="small-muted">Category icons are from CDN (Bootstrap Icons).</div>
           </div>
         </div>
       </div>
@@ -94,13 +96,15 @@
     <div class="grid">
       <!-- left: board + current analysis -->
       <div>
-        <div class="card" style="padding:12px;margin-bottom:12px;">
+        <div class="card p-3 mb-3">
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <h5>Board</h5>
+            <h5 style="margin:0">Board</h5>
             <div class="small-muted" id="moveIndex">Move 0 / 0</div>
           </div>
-          <div style="display:flex;gap:12px;align-items:flex-start;">
+
+          <div style="display:flex;gap:12px;align-items:flex-start;margin-top:10px;">
             <div id="board"></div>
+
             <div style="flex:1;">
               <div class="controls">
                 <button id="firstBtn" class="btn btn-ghost">⏮ First</button>
@@ -113,8 +117,8 @@
 
               <div style="margin-top:10px;">
                 <div class="small-muted">AI evaluation for current move</div>
-                <div class="card" style="padding:10px;margin-top:8px;background:#0d1415;">
-                  <div id="currentCategory" style="display:inline-block;"></div>
+                <div class="card p-2 mt-2" style="background:#0d1415;">
+                  <div id="currentCategory" style="display:inline-block"></div>
                   <div id="currentComment" class="analysis-text">No analysis yet.</div>
                 </div>
               </div>
@@ -122,21 +126,20 @@
             </div>
           </div>
         </div>
-
       </div>
 
       <!-- right: progress + players + move-list summary -->
       <div>
-        <div class="card" style="padding:12px;margin-bottom:12px;">
-          <h5>Analysis Progress</h5>
+        <div class="card p-3 mb-3">
+          <h5 style="margin:0">Analysis Progress</h5>
           <div style="margin-top:10px;">
             <div class="progress"><div id="progressBar" class="progress-bar" style="width:0%"></div></div>
-            <div class="small-muted" id="progressText" style="margin-top:8px;">Idle</div>
+            <div id="progressText" class="small-muted" style="margin-top:8px;">Idle</div>
           </div>
         </div>
 
-        <div class="card" style="padding:12px;margin-bottom:12px;">
-          <h5>Players & Stats</h5>
+        <div class="card p-3 mb-3">
+          <h5 style="margin:0">Players & Stats</h5>
           <div id="playersCard" style="margin-top:8px">
             <div class="player-box">
               <div class="player-avatar"><img id="whiteAvatar" src="https://picsum.photos/seed/white/64" alt="white"/></div>
@@ -160,14 +163,14 @@
           </div>
         </div>
 
-        <div class="card" style="padding:12px;margin-bottom:12px;">
-          <h5>Moves (click to jump)</h5>
-          <div class="small-muted">Click a move to jump to its position. Comments appear under the board.</div>
-          <div id="movesList" style="margin-top:12px;max-height:440px;overflow:auto;padding-right:6px;"></div>
+        <div class="card p-3 mb-3">
+          <h5 style="margin:0">Moves (click to jump)</h5>
+          <div class="small-muted" style="margin-top:6px">কমেন্ট বোর্ডের নীচে দেখবে, এখানে ক্লিক করে অবস্থানে যাবে</div>
+          <div id="movesList" style="margin-top:12px;max-height:420px;overflow:auto;padding-right:6px;"></div>
         </div>
 
-        <div class="card" style="padding:12px;">
-          <h5>Summary</h5>
+        <div class="card p-3">
+          <h5 style="margin:0">Summary</h5>
           <div id="summaryBox" class="small-muted" style="margin-top:8px;">No summary yet.</div>
         </div>
 
@@ -180,19 +183,13 @@
   <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
   <!-- Chessboard.js -->
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
-  <!-- bootstrap bundle -->
+  <!-- bootstrap bundle (optional) -->
   <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.bundle.min.js"></script>
-  <!-- local chess.js (you placed chess.js in same dir) -->
+  <!-- local chess.js (must be placed in same directory) -->
   <script src="./chess.js"></script>
 
   <script>
-    /* ============================
-       UPDATED: pieces & category icons via CDN
-       Pieces use chessboardjs Wikipedia set via UNPKG CDN.
-       Category icons use Bootstrap Icons CDN (jsDelivr).
-       ============================ */
-
-    // Category icon mapping (Bootstrap Icons via jsDelivr)
+    // Category icons (Bootstrap Icons CDN via jsDelivr)
     const categoryIconMap = {
       'Brilliant': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/star-fill.svg',
       'Great': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/trophy-fill.svg',
@@ -204,16 +201,15 @@
       'Equal': 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/icons/record-circle-fill.svg'
     };
 
-    // --- App state
+    // App state
     let boardWidget = null;
-    let game = null; // chess.js instance for stepping
-    let movesSAN = []; // SAN array
-    let fens = []; // FEN after each halfmove (index 0 = startpos)
-    let analysisResults = []; // per-halfmove analysis objects
-    let currentIndex = 0; // 0 = startpos, 1 = after 1st halfmove...
+    let movesSAN = []; // half-moves SAN
+    let fens = []; // fen per half-move (0 = start)
+    let analysisResults = []; // per half-move {category, score, comment}
+    let currentIndex = 0; // 0..fens.length-1
     let undoStack = [], redoStack = [];
 
-    // DOM nodes
+    // DOM refs
     const pgnInput = document.getElementById('pgnInput');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const clearBtn = document.getElementById('clearBtn');
@@ -243,30 +239,29 @@
     const undoBtn = document.getElementById('undoBtn');
     const redoBtn = document.getElementById('redoBtn');
 
-    // init chessboard using CDN piece images
+    // Initialize board: use local pieces folder (./pieces/{piece}.svg)
     function initBoard(){
       if(boardWidget && typeof boardWidget.destroy === 'function') boardWidget.destroy();
-      const themeUrl = 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png';
       boardWidget = Chessboard('board', {
         draggable: false,
         position: 'start',
-        pieceTheme: themeUrl
+        pieceTheme: './pieces/{piece}.svg' // expects wK.svg, bP.svg etc in ./pieces/
       });
     }
     initBoard();
 
-    // parse PGN headers quickly
+    // Parse PGN headers
     function parseHeaders(pgn){
       const headers = {};
       const re = /^\[([A-Za-z0-9_]+)\s+"([^"]*)"\]/gm;
       let m;
-      while((m=re.exec(pgn))!==null){
+      while((m = re.exec(pgn)) !== null){
         headers[m[1]] = m[2];
       }
       return headers;
     }
 
-    // parse PGN -> generate moves & fens
+    // Parse PGN and produce moves + fens
     function parsePGNandBuild(pgn){
       const temp = new Chess();
       const ok = temp.load_pgn(pgn);
@@ -284,61 +279,71 @@
       const movesLocal = [];
       for(const san of historySAN){
         const res = g.move(san);
-        if(!res) throw new Error('Failed to apply move: '+san);
+        if(!res) throw new Error('Failed to apply move: ' + san);
         movesLocal.push(san);
         fensLocal.push(g.fen());
       }
       return { headers, movesSAN: movesLocal, fens: fensLocal };
     }
 
+    // UI helpers
     function setProgress(pct, text){
       progressBar.style.width = pct + '%';
       progressText.textContent = text;
     }
 
-    // Build prompt messages for server
+    function escapeHtml(s){
+      if(!s) return '';
+      return String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];});
+    }
+
+    // Build system/user messages for the model
     function buildMessages(fen, san, plyIndex){
       const system = {
         role: "system",
         content: `You are GConnect Chess Analysis Assistant.
-You MUST output a compact JSON object ONLY (no extra narrative). JSON keys: category, score, comment.
+Return EXACTLY one JSON object and nothing else. JSON keys: category, score, comment.
 category must be one of ["Brilliant","Great","Best","Inaccuracy","Mistake","Miss","Blunder","Equal"].
-score: integer centipawn (or null). comment: short (max 2 sentences) positive/constructive explanation for the move. For good moves, add a short inspiring phrase (one-liner). Keep output strictly JSON.`
+score: integer centipawn or null.
+comment: concise (max 2 sentences) constructive message. For positive moves (Brilliant/Great/Best), add a short encouraging one-liner.`
       };
       const user = {
         role: "user",
         content: `Position FEN: ${fen}
 Move SAN: ${san}
 Ply index: ${plyIndex}
-Context: Evaluate this move only and output a single JSON object as described. Keep comment concise and avoid braces or extra metadata.`
+Please output a single JSON object only.`
       };
       return [system, user];
     }
 
-    // analyze single move via server with retries
+    // Call server proxy /api/query to analyze one move (with retries)
     async function analyzeMove(fen, san, plyIndex){
       const maxRetries = 3;
-      let attempt = 0;
-      while(attempt < maxRetries){
-        attempt++;
+      for(let attempt=1; attempt<=maxRetries; attempt++){
         try {
-          const messages = buildMessages(fen, san, plyIndex);
+          const body = {
+            model: "openai/gpt-oss-120b:together",
+            messages: buildMessages(fen, san, plyIndex),
+            max_tokens: 300,
+            temperature: 0.2
+          };
           const resp = await fetch('/api/query', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ messages, model: "openai/gpt-oss-120b:together", max_tokens:300, temperature:0.2 })
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(body)
           });
-          if(!resp.ok) throw new Error('Server returned '+resp.status);
+          if(!resp.ok) throw new Error('Server error '+resp.status);
           const json = await resp.json();
-          let txt = json.replyText || '';
-          if(!txt && json.result && json.result.choices && json.result.choices[0] && json.result.choices[0].message){
-            txt = json.result.choices[0].message.content || '';
-          }
-          // extract JSON object from response
+          // try to get reply text
+          let txt = '';
+          if(json.replyText) txt = json.replyText;
+          else if(json.result && json.result.choices && json.result.choices[0] && json.result.choices[0].message) txt = json.result.choices[0].message.content || '';
+          else if(typeof json === 'string') txt = json;
+          // extract JSON substring
           let parsed = null;
-          try {
-            parsed = JSON.parse(txt.trim());
-          } catch(e){
+          try { parsed = JSON.parse(txt.trim()); }
+          catch(e){
             const m = txt.match(/\{[\s\S]*\}/);
             if(m){
               try { parsed = JSON.parse(m[0]); } catch(e2){ parsed = null; }
@@ -352,28 +357,27 @@ Context: Evaluate this move only and output a single JSON object as described. K
             const sentences = comment.split(/(?<=\.)\s+/);
             comment = sentences.slice(0,2).join(' ').trim();
             if(['Brilliant','Great','Best'].includes(category)){
-              if(!/well|good|strong|brilliant|excellent/i.test(comment)){
+              if(!/well|good|strong|brilliant|excellent|great/i.test(comment)){
                 comment += ' Great idea — well played!';
               }
             }
             return { category, score, comment };
           } else {
-            let fallbackComment = (txt || '').toString().trim().replace(/\s+/g,' ').slice(0,500);
-            fallbackComment = fallbackComment.replace(/^[\s"']+|[\s"']+$/g,'');
-            return { category: 'Equal', score: null, comment: fallbackComment || 'No clear analysis.' };
+            // fallback: return raw trimmed text as comment
+            let fallback = (txt || '').toString().trim().replace(/\s+/g,' ').slice(0,500);
+            fallback = fallback.replace(/^[\s"']+|[\s"']+$/g,'');
+            return { category: 'Equal', score: null, comment: fallback || 'No clear analysis.' };
           }
         } catch(err){
-          console.warn('analyze attempt',attempt,'failed:',err);
-          if(attempt >= maxRetries){
-            return { category: 'Equal', score: null, comment: 'Analysis failed after retries.' };
-          }
-          await new Promise(r=>setTimeout(r, 600 * attempt));
+          console.warn('analyzeMove attempt', attempt, 'failed:', err);
+          if(attempt === maxRetries) return { category:'Equal', score:null, comment: 'Analysis failed.' };
+          await new Promise(r=>setTimeout(r, 500 * attempt));
         }
       }
-      return { category: 'Equal', score: null, comment: 'Analysis unavailable.' };
+      return { category:'Equal', score:null, comment:'Analysis unavailable.' };
     }
 
-    // render compact moves list on the right
+    // Render moves list on right
     function renderMovesList(){
       movesList.innerHTML = '';
       for(let i=0;i<movesSAN.length;i++){
@@ -381,16 +385,14 @@ Context: Evaluate this move only and output a single JSON object as described. K
         const san = movesSAN[i];
         const analysis = analysisResults[i] || {};
         const cat = analysis.category || '—';
-        const comment = analysis.comment ? analysis.comment.slice(0,120) : 'Waiting...';
-        const catClass = 'cat-' + (String(cat).replace(/\s+/g,'') || 'Equal');
-        const pivot = document.createElement('div');
-        pivot.className = 'move-card';
-        // icon
+        const comment = (analysis.comment || '').slice(0,120);
         const iconUrl = categoryIconMap[cat] || categoryIconMap['Equal'];
-        pivot.innerHTML = `
+        const el = document.createElement('div');
+        el.className = 'move-card';
+        el.innerHTML = `
           <div style="width:44px;display:flex;flex-direction:column;align-items:center;">
             <div style="font-size:.9rem">${ply}</div>
-            <div style="font-size:.75rem;color:var(--muted);">${(ply%2===1)?'W':'B'}</div>
+            <div style="font-size:.75rem;color:var(--muted)">${(ply%2===1)?'W':'B'}</div>
           </div>
           <div style="width:40px;display:flex;align-items:center;justify-content:center;">
             <div class="cat-icon"><img src="${iconUrl}" alt="${escapeHtml(cat)}"></div>
@@ -398,41 +400,35 @@ Context: Evaluate this move only and output a single JSON object as described. K
           <div style="flex:1">
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div><strong>${escapeHtml(san)}</strong></div>
-              <div><span class="move-cat ${catClass}">${escapeHtml(cat)}</span></div>
+              <div><span class="move-cat cat-${String(cat).replace(/\s+/g,'')}">${escapeHtml(cat)}</span></div>
             </div>
             <div class="analysis-text" style="font-size:.9rem;color:#cfeee0">${escapeHtml(comment)}</div>
           </div>
         `;
-        pivot.onclick = () => setPosition(ply);
-        movesList.appendChild(pivot);
+        el.onclick = ()=> setPosition(ply);
+        movesList.appendChild(el);
       }
     }
 
-    function escapeHtml(s){
-      if(!s) return '';
-      return String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];});
-    }
-
+    // Update board & current analysis UI
     function updateUI(){
       moveIndexEl.textContent = `Move ${currentIndex} / ${Math.max(0, fens.length-1)}`;
-      const fen = fens[currentIndex];
+      const fen = fens[currentIndex] || 'start';
       boardWidget.position(fen);
       if(currentIndex === 0){
         currentCategory.innerHTML = '';
         currentComment.textContent = 'Start position.';
       } else {
-        const analysis = analysisResults[currentIndex-1] || {category:'—',comment:'Waiting...'};
+        const analysis = analysisResults[currentIndex-1] || {category:'—', comment:'Waiting...' };
         const cat = analysis.category || '—';
-        const iconUrl = categoryIconMap[cat] || categoryIconMap['Equal'];
-        currentCategory.innerHTML = `<span class="move-cat cat-${String(cat).replace(/\s+/g,'')}"><span class="cat-icon" style="margin-right:6px;"><img src="${iconUrl}" alt="${escapeHtml(cat)}"></span> ${escapeHtml(cat)}</span>`;
+        const icon = categoryIconMap[cat] || categoryIconMap['Equal'];
+        currentCategory.innerHTML = `<span class="move-cat cat-${String(cat).replace(/\s+/g,'')}"><span class="cat-icon" style="margin-right:6px;"><img src="${icon}" alt="${escapeHtml(cat)}"></span> ${escapeHtml(cat)}</span>`;
         currentComment.textContent = analysis.comment || 'Waiting for analysis...';
       }
-      // highlight current in moves list
+      // highlight current in move list
       Array.from(movesList.children).forEach((el, idx) => {
-        const plyShown = idx+1;
-        if(plyShown === currentIndex) {
-          el.style.outline = '2px solid rgba(255,255,255,.04)';
-        } else el.style.outline = 'none';
+        if(idx+1 === currentIndex) el.style.outline = '2px solid rgba(255,255,255,.04)';
+        else el.style.outline = 'none';
       });
     }
 
@@ -445,27 +441,15 @@ Context: Evaluate this move only and output a single JSON object as described. K
       updateUI();
     }
 
-    // nav
+    // Navigation buttons
     firstBtn.onclick = ()=> setPosition(0);
     lastBtn.onclick = ()=> setPosition(Math.max(0, fens.length-1));
     prevBtn.onclick = ()=> setPosition(Math.max(0, currentIndex-1));
     nextBtn.onclick = ()=> setPosition(Math.min(fens.length-1, currentIndex+1));
-    undoBtn.onclick = ()=>{
-      if(undoStack.length){
-        redoStack.push(currentIndex);
-        currentIndex = undoStack.pop();
-        updateUI();
-      }
-    };
-    redoBtn.onclick = ()=>{
-      if(redoStack.length){
-        undoStack.push(currentIndex);
-        currentIndex = redoStack.pop();
-        updateUI();
-      }
-    };
+    undoBtn.onclick = ()=> { if(undoStack.length){ redoStack.push(currentIndex); currentIndex = undoStack.pop(); updateUI(); } };
+    redoBtn.onclick = ()=> { if(redoStack.length){ undoStack.push(currentIndex); currentIndex = redoStack.pop(); updateUI(); } };
 
-    // compute players stats & accuracy and update players card
+    // Compute stats (counts and simple accuracy) and render players card
     function computeStatsAndRender(){
       const whiteCounts = {}; const blackCounts = {};
       const allCats = ['Brilliant','Great','Best','Inaccuracy','Mistake','Miss','Blunder','Equal'];
@@ -496,32 +480,32 @@ Context: Evaluate this move only and output a single JSON object as described. K
         }
       });
       const totalMoves = analysisResults.length;
-      summaryBox.textContent = `Total half-moves: ${totalMoves} • White: ${whiteTotal} • Black: ${blackTotal}`;
+      summaryBox.textContent = `Total half-moves: ${totalMoves} • White moves: ${whiteTotal} • Black moves: ${blackTotal}`;
     }
 
-    // Main analyze flow
+    // MAIN: analyze button flow
     analyzeBtn.onclick = async ()=>{
       const pgn = pgnInput.value.trim();
-      if(!pgn){ alert('Please paste PGN first.'); return; }
+      if(!pgn){ alert('প্রথমে PGN পেস্ট করুন।'); return; }
       try {
-        setProgress(2,'Parsing PGN...');
+        setProgress(2, 'Parsing PGN...');
         const res = parsePGNandBuild(pgn);
         movesSAN = res.movesSAN;
         fens = res.fens;
-        // safety: ensure we handle long games; allocate arrays accordingly
         analysisResults = new Array(movesSAN.length).fill(null);
         currentIndex = 0;
         initBoard();
         boardWidget.position(fens[0]);
         updateUI();
-        // headers
+
+        // headers → show players & avatars (placeholder via picsum)
         pgnMeta.textContent = `${res.headers.White || 'White'} vs ${res.headers.Black || 'Black'} • Moves: ${movesSAN.length}`;
         whiteNameEl.textContent = res.headers.White || 'White';
         blackNameEl.textContent = res.headers.Black || 'Black';
         whiteAvatar.src = `https://picsum.photos/seed/${encodeURIComponent(res.headers.White||'white')}/64`;
         blackAvatar.src = `https://picsum.photos/seed/${encodeURIComponent(res.headers.Black||'black')}/64`;
 
-        // analyze sequentially
+        // iterate moves sequentially (keeps memory low, easy to show progress)
         for(let i=0;i<movesSAN.length;i++){
           const ply = i+1;
           const pct = Math.round(((i+1) / movesSAN.length) * 100);
@@ -532,26 +516,28 @@ Context: Evaluate this move only and output a single JSON object as described. K
           analysisResults[i] = out;
           renderMovesList();
           computeStatsAndRender();
+          // if currently viewing that move, refresh UI
           updateUI();
         }
-        setProgress(100,'Analysis complete');
+        setProgress(100, 'Analysis complete');
         renderMovesList();
         computeStatsAndRender();
         updateUI();
       } catch(err){
         console.error(err);
-        alert('Analysis failed: '+err.message);
-        setProgress(0,'Failed');
+        alert('Analysis failed: ' + (err.message || err));
+        setProgress(0, 'Failed');
       }
     };
 
+    // Clear button
     clearBtn.onclick = ()=>{
       pgnInput.value = '';
       pgnMeta.textContent = '';
       movesSAN = []; fens = []; analysisResults = []; currentIndex = 0;
       movesList.innerHTML = '';
       initBoard();
-      setProgress(0,'Idle');
+      setProgress(0, 'Idle');
       summaryBox.textContent = 'No summary yet.';
       currentCategory.innerHTML = '';
       currentComment.textContent = 'No analysis yet.';
@@ -567,7 +553,7 @@ Context: Evaluate this move only and output a single JSON object as described. K
     };
 
     // initial UI
-    setProgress(0,'Idle');
+    setProgress(0, 'Idle');
   </script>
 </body>
-            </html>
+</html>
