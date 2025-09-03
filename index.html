@@ -1,40 +1,55 @@
 <!DOCTYPE html>
 <html lang="bn">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>GConnect — Chess Analysis Board</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chess Board Test</title>
 
-  <!-- Chessboard.js CSS -->
-  <link rel="stylesheet"
-        href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
-        crossorigin="anonymous">
-
-  <style>
-    body { font-family: Arial, sans-serif; margin:18px; background:#0f1416; color:#e6eef0; }
-    #board { width: 420px; margin:0 auto 12px auto; }
-    .btn { background:#128c7e; border:0; padding:6px 12px; border-radius:6px; color:white; cursor:pointer; }
-    .btn.secondary{ background:#3a3f44; }
-    textarea { width:100%; min-height:120px; border-radius:6px; padding:8px; margin-bottom:12px; }
-    .analysis-text { color:#dfeff0; white-space:pre-wrap; }
-    .move-card { margin-bottom:6px; padding:6px; border-radius:6px; background:#13181a; cursor:pointer; display:flex; gap:6px; align-items:center; }
-  </style>
+<link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
+<style>
+  body { font-family: Arial; padding: 20px; background: #111; color: #eee; }
+  #board { width: 400px; margin-bottom: 12px; }
+  textarea { width:100%; height:80px; margin-bottom:12px; }
+  .btn { padding:6px 12px; background:#128c7e; color:white; border:none; cursor:pointer; margin-right:6px; }
+</style>
 </head>
 <body>
-  <h3>GConnect — Chess Analysis Board</h3>
 
-  <textarea id="pgnInput" placeholder="PGN পেস্ট করুন"></textarea>
-  <div>
-    <button id="analyzeBtn" class="btn">Analyze PGN</button>
-    <button id="clearBtn" class="btn secondary">Clear</button>
-  </div>
+<h3>Chess Board Test</h3>
 
-  <div id="board"></div>
-  <div id="currentComment" class="analysis-text">No analysis yet.</div>
-  <div id="movesList"></div>
+<textarea id="pgnInput" placeholder="Paste PGN here e.g. 1. e4 e5 2. Nf3 Nc6"></textarea><br>
+<button id="loadBtn" class="btn">Load PGN</button>
 
-  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
-  <script src="./js/chess.js"></script>
+<div id="board"></div>
+
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
+<script src="chess.js"></script>
+<script>
+let board = null;
+let game = new Chess();
+
+// Use local pieces
+const pieceTheme = './pieces/{piece}.svg';
+
+function initBoard() {
+  board = Chessboard('board', { 
+    position: 'start',
+    pieceTheme: pieceTheme
+  });
+}
+
+// Load PGN
+document.getElementById('loadBtn').onclick = () => {
+  const pgn = document.getElementById('pgnInput').value;
+  if(!pgn) { alert("PGN দিন"); return; }
+  const ok = game.load_pgn(pgn);
+  if(!ok) { alert("Invalid PGN"); return; }
+  board.position(game.fen());
+};
+
+initBoard();
+</script>
 </body>
 </html>
+
