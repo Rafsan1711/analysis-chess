@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GConnect — Chess Analysis Board</title>
+
+  <!-- Chessboard.js CSS -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
+        crossorigin="anonymous">
+
+  <!-- Bootstrap (for cards/buttons) -->
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"/>
+
+  <style>
+    :root{
+      --bg:#0f1416; --card:#13181a; --muted:#9aa4a8; --accent:#00b894;
+    }
+    html,body{height:100%;background:var(--bg);color:#e6eef0;font-family:Inter,Helvetica,Arial,sans-serif;}
+    .container{padding:18px;max-width:1200px;}
+    .card{background:var(--card);border:none;border-radius:12px;color:inherit;box-shadow:0 6px 18px rgba(0,0,0,.6);}
+    .card h5{color:#fff;}
+    textarea{background:transparent;border:1px solid #223;min-height:110px;color:inherit;padding:12px;border-radius:8px;}
+    .progress {height:10px;background:#0a0d0e;border-radius:6px;overflow:hidden;}
+    .progress-bar{background:linear-gradient(90deg,#00b894,#2dd4bf);}
+
+    /* layout */
+    .grid{display:grid;grid-template-columns: 1fr 420px;gap:18px;}
+    @media (max-width:1000px){ .grid{grid-template-columns:1fr;} }
+
+    /* board container */
+    #board { width: 100%; max-width: 420px; margin: 0 auto; }
+
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;justify-content:center;}
+    .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,.06);color:#e6eef0;}
+    .meta{color:var(--muted);font-size:.9rem;margin-top:8px;}
+
+    /* move list / card */
+    .move-card{margin-bottom:8px;border-radius:10px;padding:10px;background:#0f1718;}
+    .move-cat{font-weight:700;padding:6px 8px;border-radius:6px;font-size:.8rem;}
+    .cat-Brilliant{background:#ffdd57;color:#1f1a00;}
+    .cat-Great{background:#b6f19c;color:#05320a;}
+    .cat-Best{background:#9ad0ff;color:#01243a;}
+    .cat-Mistake{background:#ffd1a8;color:#3a1700;}
+    .cat-Miss{background:#ffd1a8;color:#3a1700;}
+    .cat-Blunder{background:#ff9aa2;color:#3a0006;}
+    .cat-Inaccuracy{background:#f0f0f0;color:#222;}
+
+    .analysis-text{color:#dfeff0;margin-top:6px;white-space:pre-wrap;}
+
+    /* small */
+    .small-muted{color:var(--muted);font-size:.85rem;}
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <h3 style="margin-bottom:14px;">GConnect — Chess Analysis Board</h3>
+
+    <div class="card" style="padding:14px;margin-bottom:14px;">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+        <div style="flex:1;">
+          <div class="small-muted">Paste PGN (supports standard exported PGN with headers)</div>
+          <textarea id="pgnInput" placeholder='Paste PGN here. Example:
+[Event "Game"]
+[White "player1"]
+[Black "player2"]
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 ...'></textarea>
+        </div>
+        <div style="width:260px;">
+          <div class="small-muted">Controls</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <button id="analyzeBtn" class="btn btn-success">Analyze PGN</button>
+            <button id="clearBtn" class="btn btn-ghost">Clear</button>
+            <div class="meta" id="pgnMeta"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- left: board + analysis text -->
+      <div>
+        <div class="card" style="padding:12px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h5>Board</h5>
+            <div class="small-muted" id="moveIndex">Move 0 / 0</div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;">
+            <div id="board"></div>
+            <div style="flex:1;">
+              <div class="controls">
+                <button id="firstBtn" class="btn btn-ghost">⏮ First</button>
+                <button id="prevBtn" class="btn btn-ghost">◀ Prev</button>
+                <button id="nextBtn" class="btn btn-ghost">Next ▶</button>
+                <button id="lastBtn" class="btn btn-ghost">Last ⏭</button>
+                <button id="undoBtn" class="btn btn-ghost">Undo ↶</button>
+                <button id="redoBtn" class="btn btn-ghost">Redo ↷</button>
+              </div>
+
+              <div style="margin-top:10px;">
+                <div class="small-muted">AI evaluation for current move</div>
+                <div class="card" style="padding:10px;margin-top:8px;background:#0d1415;">
+                  <div id="currentCategory" style="display:inline-block;"></div>
+                  <div id="currentComment" class="analysis-text">No analysis yet.</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:12px;">
+          <h5>Moves & Analysis</h5>
+          <div class="small-muted">Per-move AI analysis. Click a move to jump to that position.</div>
+          <div id="movesList" style="margin-top:12px;max-height:400px;overflow:auto;padding-right:6px;"></div>
+        </div>
+      </div>
+
+      <!-- right: progress + summary -->
+      <div>
+        <div class="card" style="padding:12px;margin-bottom:12px;">
+          <h5>Analysis Progress</h5>
+          <div style="margin-top:10px;">
+            <div class="progress"><div id="progressBar" class="progress-bar" style="width:0%"></div></div>
+            <div class="small-muted" id="progressText" style="margin-top:8px;">Idle</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:12px;margin-bottom:12px;">
+          <h5>Summary</h5>
+          <div id="summaryBox" class="small-muted" style="margin-top:8px;">No summary yet.</div>
+        </div>
+
+        <div class="card" style="padding:12px;">
+          <h5>Settings</h5>
+          <div style="margin-top:8px;">
+            <div class="small-muted">Model:</div>
+            <div style="margin-top:6px;"><strong>openai/gpt-oss-120b:together</strong></div>
+            <div class="small-muted" style="margin-top:8px">Server proxy (this app): <code>/api/query</code></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- libs -->
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <!-- Chessboard.js -->
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
+  <!-- bootstrap bundle -->
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.bundle.min.js"></script>
+  <!-- local chess.js (you placed chess.js in same dir) -->
+  <script src="./chess.js"></script>
+
+  <script>
+    // --- App state
+    let boardWidget = null;
+    let game = null; // chess.js instance for stepping
+    let movesSAN = []; // SAN array
+    let fens = []; // FEN after each move (1-based index: index0 = starting pos fen, index i = after i-th halfmove)
+    let analysisResults = []; // parallel array for move analysis objects
+    let currentIndex = 0; // 0 = startpos, 1 = after 1st halfmove, etc.
+    let undoStack = [], redoStack = [];
+
+    // DOM nodes
+    const pgnInput = document.getElementById('pgnInput');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const movesList = document.getElementById('movesList');
+    const currentCategory = document.getElementById('currentCategory');
+    const currentComment = document.getElementById('currentComment');
+    const moveIndexEl = document.getElementById('moveIndex');
+    const pgnMeta = document.getElementById('pgnMeta');
+    const summaryBox = document.getElementById('summaryBox');
+
+    // control buttons
+    const firstBtn = document.getElementById('firstBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const lastBtn = document.getElementById('lastBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+
+    // init chessboard
+    function initBoard(){
+      if(boardWidget) boardWidget.destroy();
+      boardWidget = Chessboard('board', {
+        draggable: false,
+        position: 'start',
+        pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png'
+      });
+    }
+    initBoard();
+
+    // parse PGN headers quickly
+    function parseHeaders(pgn){
+      const headers = {};
+      const re = /^\[([A-Za-z0-9_]+)\s+"([^"]*)"\]/gm;
+      let m;
+      while((m=re.exec(pgn))!==null){
+        headers[m[1]] = m[2];
+      }
+      return headers;
+    }
+
+    // parse PGN -> generate moves & fens
+    function parsePGNandBuild(pgn){
+      // create a temp chess object to get moves SAN array
+      const temp = new Chess();
+      const ok = temp.load_pgn(pgn);
+      if(!ok) throw new Error('Invalid PGN: could not load');
+      const historySAN = temp.history(); // array of san strings
+      // detect setup
+      const headers = parseHeaders(pgn);
+      // create base game to step (respect Setup/FEN if present)
+      const g = new Chess();
+      if(headers.SetUp === '1' && headers.FEN){
+        const loaded = g.load(headers.FEN);
+        if(!loaded) g.reset();
+      } else {
+        g.reset();
+      }
+      // starting fen
+      const fensLocal = [g.fen()];
+      const movesLocal = [];
+      // step through history and record fens after each halfmove
+      for(const san of historySAN){
+        const res = g.move(san);
+        if(!res){
+          throw new Error('Failed to apply move: '+san);
+        }
+        movesLocal.push(san);
+        fensLocal.push(g.fen());
+      }
+      return { headers, movesSAN: movesLocal, fens: fensLocal };
+    }
+
+    // helper to set progress
+    function setProgress(pct, text){
+      progressBar.style.width = pct + '%';
+      progressText.textContent = text;
+    }
+
+    // build prompt messages for server (we ask for strict JSON)
+    function buildMessages(fen, san, plyIndex){
+      const system = {
+        role: "system",
+        content: `You are GConnect Chess Analysis Assistant.
+You must output EXACTLY one JSON object (no extra text). The JSON must have keys:
+- category: one of ["Brilliant","Great","Best","Inaccuracy","Mistake","Miss","Blunder","Equal"] (choose the most appropriate)
+- score: an integer centipawn evaluation (optional, can be null)
+- comment: short explanation (1-3 sentences) about why this move is categorized as such and any tactical/strategic idea.
+Return only JSON, nothing else.`
+      };
+      const user = {
+        role: "user",
+        content: `Position FEN: ${fen}
+Move SAN: ${san}
+Ply index: ${plyIndex}
+Please evaluate the move in context of this exact position and output JSON as requested.`
+      };
+      return [system, user];
+    }
+
+    // call server proxy (POST /api/query) - returns parsed object {category, score, comment}
+    async function analyzeMove(fen, san, plyIndex){
+      try {
+        const messages = buildMessages(fen, san, plyIndex);
+        const resp = await fetch('/api/query', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ messages, model: "openai/gpt-oss-120b:together", max_tokens:400 })
+        });
+        if(!resp.ok) throw new Error('Server failed: '+resp.status);
+        const json = await resp.json();
+        // try to extract replyText or raw. Our server will return { result, replyText }
+        let txt = '';
+        if(json.replyText) txt = json.replyText;
+        else if(json.result && typeof json.result === 'string') txt = json.result;
+        else if(json.result && json.result.choices && json.result.choices[0] && json.result.choices[0].message) txt = json.result.choices[0].message.content;
+        else if(typeof json === 'string') txt = json;
+        // try parse JSON inside text
+        try {
+          const parsed = JSON.parse(txt.trim());
+          return parsed;
+        } catch(parseErr){
+          // try to extract a JSON substring
+          const m = txt.match(/\{[\s\S]*\}/);
+          if(m){
+            try { return JSON.parse(m[0]); } catch(e){}
+          }
+          // fallback: return as comment only
+          return { category: "Equal", score: null, comment: txt.trim().slice(0,800) };
+        }
+      } catch(err){
+        console.error('analyzeMove error',err);
+        return { category: "Equal", score: null, comment: "Analysis failed: "+(err.message||err) };
+      }
+    }
+
+    // render moves list and clickable entries
+    function renderMovesList(){
+      movesList.innerHTML = '';
+      for(let i=0;i<movesSAN.length;i++){
+        const moveIndex = i+1;
+        const san = movesSAN[i];
+        const analysis = analysisResults[i] || {};
+        const div = document.createElement('div');
+        div.className = 'move-card';
+        div.dataset.index = moveIndex;
+        const cat = analysis.category || '—';
+        const comment = analysis.comment ? analysis.comment.slice(0,160) : 'Waiting...';
+        const catCls = 'cat-' + (cat.replace(/\s+/g,'') || 'Equal');
+        div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;">
+            <div><strong>${moveIndex}.</strong> ${san}</div>
+            <div class="move-cat ${catCls}">${cat}</div>
+          </div>
+          <div class="analysis-text">${escapeHtml(comment)}</div>`;
+        div.onclick = ()=>{
+          // jump to that ply (fens index aligned)
+          const idx = parseInt(div.dataset.index,10);
+          setPosition(idx);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        movesList.appendChild(div);
+      }
+    }
+
+    // safe escape
+    function escapeHtml(s){
+      if(!s) return '';
+      return String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];});
+    }
+
+    // update UI for current index
+    function updateUI(){
+      moveIndexEl.textContent = `Move ${currentIndex} / ${fens.length-1}`;
+      // set board to fen
+      const fen = fens[currentIndex];
+      boardWidget.position(fen);
+      // update current analysis (if currentIndex==0 -> startpos)
+      if(currentIndex === 0){
+        currentCategory.innerHTML = '';
+        currentComment.textContent = 'Start position.';
+      } else {
+        const analysis = analysisResults[currentIndex-1] || {category:'—',comment:'Waiting...'};
+        // styled category
+        const cat = analysis.category || '—';
+        currentCategory.innerHTML = `<span class="move-cat cat-${cat.replace(/\s+/g,'')}">${escapeHtml(cat)}</span>`;
+        currentComment.textContent = analysis.comment || 'Waiting for analysis...';
+      }
+      // highlight selected move card
+      Array.from(movesList.children).forEach(el=>{
+        if(parseInt(el.dataset.index,10) === currentIndex) el.style.outline = '2px solid rgba(255,255,255,.04)';
+        else el.style.outline = 'none';
+      });
+    }
+
+    // setPosition to ply index (0...fens.length-1)
+    function setPosition(idx){
+      if(idx < 0) idx = 0;
+      if(idx > fens.length-1) idx = fens.length-1;
+      // push to undo stack current index
+      undoStack.push(currentIndex);
+      currentIndex = idx;
+      redoStack = [];
+      updateUI();
+    }
+
+    // navigation controls
+    firstBtn.onclick = ()=> setPosition(0);
+    lastBtn.onclick = ()=> setPosition(fens.length-1);
+    prevBtn.onclick = ()=> setPosition(Math.max(0, currentIndex-1));
+    nextBtn.onclick = ()=> setPosition(Math.min(fens.length-1, currentIndex+1));
+    undoBtn.onclick = ()=>{
+      if(undoStack.length){
+        redoStack.push(currentIndex);
+        currentIndex = undoStack.pop();
+        updateUI();
+      }
+    };
+    redoBtn.onclick = ()=>{
+      if(redoStack.length){
+        undoStack.push(currentIndex);
+        currentIndex = redoStack.pop();
+        updateUI();
+      }
+    };
+
+    // main analyze flow
+    analyzeBtn.onclick = async ()=>{
+      const pgn = pgnInput.value.trim();
+      if(!pgn){ alert('Please paste PGN first.'); return; }
+      try {
+        setProgress(2,'Parsing PGN...');
+        // parse
+        const res = parsePGNandBuild(pgn);
+        movesSAN = res.movesSAN;
+        fens = res.fens; // fens[0] = starting fen
+        analysisResults = new Array(movesSAN.length).fill(null);
+        currentIndex = 0;
+        initBoard();
+        boardWidget.position(fens[0]);
+        renderMovesList();
+        updateUI();
+        pgnMeta.textContent = `${res.headers.White || 'White'} vs ${res.headers.Black || 'Black'} • Moves: ${movesSAN.length}`;
+        // analyze sequentially
+        for(let i=0;i<movesSAN.length;i++){
+          const pct = Math.round((i / movesSAN.length) * 100);
+          setProgress(pct, `Analyzing move ${i+1} / ${movesSAN.length} ...`);
+          const fenBefore = fens[i]; // position before applying move i+1
+          const san = movesSAN[i];
+          const plyIndex = i+1;
+          // call analyzeMove (server)
+          const out = await analyzeMove(fenBefore, san, plyIndex);
+          analysisResults[i] = out;
+          // update UI partial
+          renderMovesList();
+          // update current if currently at that move
+          updateUI();
+        }
+        setProgress(100,'Analysis complete');
+        // build short summary (count categories)
+        const counts = {};
+        for(const a of analysisResults){
+          const cat = (a && a.category) ? a.category : 'Equal';
+          counts[cat] = (counts[cat]||0)+1;
+        }
+        summaryBox.innerHTML = Object.entries(counts).map(([k,v])=>`${k}: ${v}`).join(' • ');
+        // final render
+        renderMovesList();
+        updateUI();
+      } catch(err){
+        console.error(err);
+        alert('Analysis failed: '+err.message);
+        setProgress(0,'Failed');
+      }
+    };
+
+    clearBtn.onclick = ()=>{
+      pgnInput.value = '';
+      pgnMeta.textContent = '';
+      movesSAN = []; fens = []; analysisResults = []; currentIndex = 0;
+      movesList.innerHTML = '';
+      initBoard();
+      setProgress(0,'Idle');
+      summaryBox.textContent = 'No summary yet.';
+      currentCategory.innerHTML = '';
+      currentComment.textContent = 'No analysis yet.';
+      moveIndexEl.textContent = 'Move 0 / 0';
+    };
+
+    // small helper: analyzeMove wrapper uses debounce/queue if needed (already used)
+    // initial state
+    setProgress(0,'Idle');
+  </script>
+</body>
+</html>
