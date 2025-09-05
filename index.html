@@ -1,4 +1,5 @@
-<!DOCTYPE html><html lang="en">
+<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Chess Analysis Board</title>
@@ -13,10 +14,20 @@
 </head>
 <body>
   <h2>Chess Analysis Board</h2>
-  <div id="board"></div>  <div id="controls">
+  <div id="board"></div>
+
+  <div id="controls">
     <button onclick="undoMove()">Undo</button>
     <button onclick="redoMove()">Redo</button>
-  </div>  <div id="info">Best move: <span id="bestmove">N/A</span></div>  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>  <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.min.js"></script>  <script>
+  </div>
+
+  <div id="info">Best move: <span id="bestmove">N/A</span></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.min.js"></script>
+
+  <script>
     const game = new Chess();
     const board = Chessboard('board', {
       draggable: true,
@@ -86,5 +97,6 @@
       document.querySelector(`[data-square='${from}']`)?.classList.add("highlight");
       document.querySelector(`[data-square='${to}']`)?.classList.add("highlight");
     }
-  </script></body>
-</html>
+  </script>
+</body>
+  </html>
