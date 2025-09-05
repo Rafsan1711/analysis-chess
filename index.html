@@ -1,55 +1,90 @@
-<!DOCTYPE html>
-<html lang="bn">
+<!DOCTYPE html><html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Chess Board Test</title>
-
-<link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
-<style>
-  body { font-family: Arial; padding: 20px; background: #111; color: #eee; }
-  #board { width: 400px; margin-bottom: 12px; }
-  textarea { width:100%; height:80px; margin-bottom:12px; }
-  .btn { padding:6px 12px; background:#128c7e; color:white; border:none; cursor:pointer; margin-right:6px; }
-</style>
+  <meta charset="UTF-8">
+  <title>Chess Analysis Board</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css" />
+  <style>
+    body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
+    #board { width: 400px; margin: 20px; }
+    #controls { margin: 10px; }
+    #info { margin-top: 10px; }
+    .highlight { background-color: rgba(255, 255, 0, 0.6); }
+  </style>
 </head>
 <body>
+  <h2>Chess Analysis Board</h2>
+  <div id="board"></div>  <div id="controls">
+    <button onclick="undoMove()">Undo</button>
+    <button onclick="redoMove()">Redo</button>
+  </div>  <div id="info">Best move: <span id="bestmove">N/A</span></div>  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>  <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.min.js"></script>  <script>
+    const game = new Chess();
+    const board = Chessboard('board', {
+      draggable: true,
+      position: 'start',
+      onDrop: onDrop
+    });
 
-<h3>Chess Board Test</h3>
+    const engine = Stockfish();
+    engine.postMessage("uci");
 
-<textarea id="pgnInput" placeholder="Paste PGN here e.g. 1. e4 e5 2. Nf3 Nc6"></textarea><br>
-<button id="loadBtn" class="btn">Load PGN</button>
+    let undoStack = [];
+    let redoStack = [];
 
-<div id="board"></div>
+    function onDrop(source, target) {
+      let move = game.move({ from: source, to: target, promotion: 'q' });
+      if (move === null) return 'snapback';
+      undoStack.push(move);
+      redoStack = [];
+      board.position(game.fen());
+      highlightMove(move);
+      analyzePosition();
+    }
 
-<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
-<script src="chess.js"></script>
-<script>
-let board = null;
-let game = new Chess();
+    function undoMove() {
+      if (undoStack.length === 0) return;
+      let move = game.undo();
+      redoStack.push(move);
+      board.position(game.fen());
+    }
 
-// Use local pieces
-const pieceTheme = './pieces/{piece}.svg';
+    function redoMove() {
+      if (redoStack.length === 0) return;
+      let move = redoStack.pop();
+      game.move(move);
+      undoStack.push(move);
+      board.position(game.fen());
+    }
 
-function initBoard() {
-  board = Chessboard('board', { 
-    position: 'start',
-    pieceTheme: pieceTheme
-  });
-}
+    function analyzePosition() {
+      engine.postMessage("position fen " + game.fen());
+      engine.postMessage("go depth 12");
 
-// Load PGN
-document.getElementById('loadBtn').onclick = () => {
-  const pgn = document.getElementById('pgnInput').value;
-  if(!pgn) { alert("PGN দিন"); return; }
-  const ok = game.load_pgn(pgn);
-  if(!ok) { alert("Invalid PGN"); return; }
-  board.position(game.fen());
-};
+      engine.onmessage = function(event) {
+        let line = event.data;
+        if (typeof line === "string" && line.startsWith("bestmove")) {
+          let best = line.split(" ")[1];
+          document.getElementById("bestmove").innerText = best;
+          markBestMove(best);
+        }
+      };
+    }
 
-initBoard();
-</script>
-</body>
+    function highlightMove(move) {
+      removeHighlights();
+      document.querySelector(`[data-square='${move.from}']`)?.classList.add("highlight");
+      document.querySelector(`[data-square='${move.to}']`)?.classList.add("highlight");
+    }
+
+    function removeHighlights() {
+      document.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
+    }
+
+    function markBestMove(bestMove) {
+      removeHighlights();
+      const from = bestMove.substring(0,2);
+      const to = bestMove.substring(2,4);
+      document.querySelector(`[data-square='${from}']`)?.classList.add("highlight");
+      document.querySelector(`[data-square='${to}']`)?.classList.add("highlight");
+    }
+  </script></body>
 </html>
-
