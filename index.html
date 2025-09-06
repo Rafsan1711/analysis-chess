@@ -1,10 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Chess Bot Minimal</title>
+    <title>Chess Bot Minimal + Click + Sound + Effect</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Bootstrap for centering -->
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" crossorigin="anonymous">
     <!-- Chessboard JS CSS -->
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
     <style>
@@ -20,12 +18,33 @@
             min-width: 320px;
             min-height: 320px;
         }
+        .highlight-click {
+            box-shadow: 0 0 8px 4px orange inset;
+        }
+        .highlight-target {
+            box-shadow: 0 0 4px 2px green inset;
+        }
+        .move-effect {
+            animation: boardMoveEffect 0.4s;
+        }
+        @keyframes boardMoveEffect {
+            0% { box-shadow: 0 0 10px 4px #33dd33 inset; }
+            100% { box-shadow: none; }
+        }
     </style>
 </head>
 <body>
     <div class="board-container">
         <div id="myBoard"></div>
     </div>
+    <!-- Sound Effects -->
+    <audio id="moveSound" src="sounds/move.mp3"></audio>
+    <audio id="captureSound" src="sounds/capture.mp3"></audio>
+    <audio id="promoteSound" src="sounds/promote.mp3"></audio>
+    <audio id="castlingSound" src="sounds/castling.mp3"></audio>
+    <audio id="incorrectMoveSound" src="sounds/incorrect-move.mp3"></audio>
+    <audio id="checkSound" src="sounds/check.mp3"></audio>
+    <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
     <!-- jQuery for Chessboard.js -->
     <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
     <!-- Chessboard JS -->
@@ -33,9 +52,23 @@
     <!-- Local chess.js -->
     <script src="js/chess.js"></script>
     <script>
-    // ===== Minimal Chess Bot Logic START =====
+    // ===== Pieces config =====
+    var pieceImgConfig = {
+      'wK': 'pieces/wK.svg',
+      'wQ': 'pieces/wQ.svg',
+      'wR': 'pieces/wR.svg',
+      'wB': 'pieces/wB.svg',
+      'wN': 'pieces/wN.svg',
+      'wP': 'pieces/wP.svg',
+      'bK': 'pieces/bK.svg',
+      'bQ': 'pieces/bQ.svg',
+      'bR': 'pieces/bR.svg',
+      'bB': 'pieces/bB.svg',
+      'bN': 'pieces/bN.svg',
+      'bP': 'pieces/bP.svg'
+    };
 
-    // Piece weights and PST for evaluation
+    // ===== Chess AI Logic =====
     var weights = { p: 100, n: 280, b: 320, r: 479, q: 929, k: 60000, k_e: 60000 };
     var pst_w = {
       p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
@@ -62,7 +95,28 @@
     var game = new Chess();
     var globalSum = 0; // from black's perspective
 
-    // Evaluate function
+    // Sound play helper
+    function playSound(type) {
+      var el = null;
+      switch(type) {
+        case "move": el = document.getElementById("moveSound"); break;
+        case "capture": el = document.getElementById("captureSound"); break;
+        case "promote": el = document.getElementById("promoteSound"); break;
+        case "castling": el = document.getElementById("castlingSound"); break;
+        case "incorrect": el = document.getElementById("incorrectMoveSound"); break;
+        case "check": el = document.getElementById("checkSound"); break;
+        case "checkmate": el = document.getElementById("checkmateSound"); break;
+      }
+      if (el) { el.currentTime = 0; el.play(); }
+    }
+
+    // Effect helper
+    function boardMoveEffect(square) {
+      var $sq = $('#myBoard .square-' + square);
+      $sq.addClass('move-effect');
+      setTimeout(function() { $sq.removeClass('move-effect'); }, 400);
+    }
+
     function evaluateBoard(game, move, prevSum, color) {
       if (game.in_checkmate()) {
         if (move.color === color) return 1e10;
@@ -104,7 +158,6 @@
       return prevSum;
     }
 
-    // Minimax with alpha-beta
     function minimax(game, depth, alpha, beta, isMaximizingPlayer, sum, color) {
       var children = game.ugly_moves({ verbose: true });
       children.sort(function () { return 0.5 - Math.random(); });
@@ -128,46 +181,162 @@
       return isMaximizingPlayer ? [bestMove, maxValue] : [bestMove, minValue];
     }
 
-    // Bot move logic
     function getBestMove(game, color, currSum) {
-      // Minimal depth for speed
       var depth = 2;
       var [bestMove, ] = minimax(game, depth, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, true, currSum, color);
       return bestMove;
     }
 
-    // Only board, minimal controls
+    // ===== Chessboard JS Config =====
     var config = {
       draggable: true,
       position: 'start',
+      pieceTheme: function(piece) {
+        return pieceImgConfig[piece];
+      },
       onDragStart: function(source, piece) {
         if (game.game_over()) return false;
         if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
             (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
       },
       onDrop: function(source, target) {
-        var move = game.move({ from: source, to: target, promotion: 'q' });
-        if (move === null) return 'snapback';
-        globalSum = evaluateBoard(game, move, globalSum, 'b');
-        board.position(game.fen());
-
-        setTimeout(function() {
-          if (!game.game_over() && game.turn() === 'b') {
-            var botMove = getBestMove(game, 'b', globalSum);
-            if (botMove) {
-              game.move(botMove);
-              globalSum = evaluateBoard(game, botMove, globalSum, 'b');
-              board.position(game.fen());
-            }
-          }
-        }, 300);
+        return handleMove(source, target, "drag");
       },
       onSnapEnd: function() {
         board.position(game.fen());
       }
     };
     board = Chessboard('myBoard', config);
+
+    // ===== Piece Move Logic (drag+click) + Sound + Effects =====
+    function handleMove(source, target, moveType) {
+      // Try to move
+      var move = game.move({ from: source, to: target, promotion: 'q' });
+      if (move === null) {
+        playSound("incorrect");
+        clearHighlights();
+        return 'snapback';
+      }
+      // Sound + Effect for player move
+      playMoveEffectAndSound(move);
+      boardMoveEffect(source);
+      boardMoveEffect(target);
+      globalSum = evaluateBoard(game, move, globalSum, 'b');
+      board.position(game.fen());
+      clearHighlights();
+      // Bot move
+      setTimeout(function() {
+        if (!game.game_over() && game.turn() === 'b') {
+          var botMove = getBestMove(game, 'b', globalSum);
+          if (botMove) {
+            game.move(botMove);
+            playMoveEffectAndSound(botMove);
+            boardMoveEffect(botMove.from);
+            boardMoveEffect(botMove.to);
+            globalSum = evaluateBoard(game, botMove, globalSum, 'b');
+            board.position(game.fen());
+          }
+        }
+      }, 300);
+      selectedSquare = null;
+      return;
+    }
+
+    // Sound/Effect logic for move
+    function playMoveEffectAndSound(move) {
+      // Castling
+      if (move.flags.includes('k') || move.flags.includes('q')) {
+        playSound("castling");
+      } 
+      // Promotion
+      else if (move.flags.includes('p')) {
+        playSound("promote");
+      } 
+      // Capture
+      else if (move.flags.includes('c') || move.flags.includes('e')) {
+        playSound("capture");
+      } 
+      // Normal
+      else {
+        playSound("move");
+      }
+      // Check/Checkmate
+      if (game.in_checkmate()) {
+        playSound("checkmate");
+      } else if (game.in_check()) {
+        playSound("check");
+      }
+    }
+
+    // ===== Click-to-move implementation =====
+    var selectedSquare = null;
+    var legalTargets = [];
+
+    function clearHighlights() {
+      $('#myBoard .square-55d63').removeClass('highlight-click');
+      $('#myBoard .square-55d63').removeClass('highlight-target');
+    }
+
+    function highlightSquares(squares, highlightClass) {
+      squares.forEach(function(sq) {
+        $('#myBoard .square-' + sq).addClass(highlightClass);
+      });
+    }
+
+    // Square click logic
+    $('#myBoard').on('click', '.square-55d63', function() {
+      var square = $(this).attr('data-square');
+      if (game.game_over()) return;
+      clearHighlights();
+
+      if (!selectedSquare) {
+        var piece = game.get(square);
+        // Only select your own piece
+        if (!piece || piece.color !== game.turn()) return;
+        selectedSquare = square;
+        $('#myBoard .square-' + square).addClass('highlight-click');
+
+        // Highlight legal targets
+        var moves = game.moves({ square: square, verbose: true });
+        legalTargets = moves.map(function(move) { return move.to; });
+        highlightSquares(legalTargets, 'highlight-target');
+      } else {
+        // If clicked on same square, deselect
+        if (square === selectedSquare) {
+          selectedSquare = null;
+          legalTargets = [];
+          clearHighlights();
+          return;
+        }
+        // If clicked on a legal target, move
+        if (legalTargets.includes(square)) {
+          handleMove(selectedSquare, square, "click");
+        } else {
+          // If clicked on another own piece, switch selection
+          var piece2 = game.get(square);
+          if (piece2 && piece2.color === game.turn()) {
+            selectedSquare = square;
+            $('#myBoard .square-' + square).addClass('highlight-click');
+            var moves = game.moves({ square: square, verbose: true });
+            legalTargets = moves.map(function(move) { return move.to; });
+            highlightSquares(legalTargets, 'highlight-target');
+          } else {
+            // invalid target, deselect
+            selectedSquare = null;
+            legalTargets = [];
+            clearHighlights();
+          }
+        }
+      }
+    });
+
+    // Allow drag and click to work side by side
+    $('#myBoard').on('mousedown', '.square-55d63', function() {
+      clearHighlights();
+      selectedSquare = null;
+      legalTargets = [];
+    });
+
     </script>
-    <!-- ===== Minimal Chess Bot Logic END ===== -->
 </body>
 </html>
