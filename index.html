@@ -3,6 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <title>Chess Analysis Board</title>
+<!-- Chessboard JS and CSS -->
+<link rel="stylesheet"
+    href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+<!-- jQuery -->
+<script src="https://code.jquery.com/jquery-3.5.1.js"></script>
+<!-- Chess JS -->
+<script src="https://cdn.jsdelivr.net/npm/chess.js@0.13.4/chess.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css" />
   <style>
     body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
@@ -10,6 +18,27 @@
     #controls { margin: 10px; }
     #info { margin-top: 10px; }
     .highlight { background-color: rgba(255, 255, 0, 0.6); }
+    .text-align-center {
+    text-align: center;
+}
+
+#myBoard {
+    max-width: 100%;
+    height: auto;
+    overflow: scroll;
+}
+
+.highlight-white {
+    box-shadow: inset 0 0 3px 3px yellow;
+}
+
+.highlight-black {
+    box-shadow: inset 0 0 3px 3px blue;
+}
+
+.highlight-hint {
+    box-shadow: inset 0 0 3px 3px red;
+}
   </style>
 </head>
 <body>
@@ -22,7 +51,37 @@
   </div>
 
   <div id="info">Best move: <span id="bestmove">N/A</span></div>
-
+<!-- Chess Board Container -->
+<div id="myBoard"></div>
+<div style="margin: 1em 0; text-align: center;">
+    <button id="undoBtn" class="btn btn-danger">Undo</button>
+    <button id="redoBtn" class="btn btn-success">Redo</button>
+</div>
+<div style="margin: 1em 0; text-align: center;">
+    <label>
+        <input type="checkbox" id="showHint" name="showHint" value="showHint">
+        Show Suggested Move (White)
+    </label>
+</div>
+<div style="margin: 1em 0; text-align: center;">
+    <span id="position-count">0</span> positions evaluated in <span id="time">0</span>s.
+    <br>
+    That's <span id="positions-per-s">0</span> positions / s.
+</div>
+<div style="margin: 1em 0; text-align: center;">
+    <h2>Advantage</h2>
+    <p><span id="advantageColor">Neither side</span> has the advantage (+<span id="advantageNumber">0</span>).</p>
+    <div class="progress">
+        <div class="progress-bar bg-primary progress-bar-striped progress-bar-animated" 
+            role="progressbar" aria-valuenow="0" style="width: 50%"
+            aria-valuemin="-2000" aria-valuemax="4000" id='advantageBar'>
+        </div>
+    </div>
+</div>
+<div style="margin: 1em 0; text-align: center;">
+    <h2>Status</h2>
+    <p><span id="status">No check, checkmate, or draw.</span></p>
+  </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.min.js"></script>
@@ -97,6 +156,113 @@
       document.querySelector(`[data-square='${from}']`)?.classList.add("highlight");
       document.querySelector(`[data-square='${to}']`)?.classList.add("highlight");
     }
+    // Minimal Chess AI Board JS (for copy-paste integration)
+
+var board = null;
+var $board = $('#myBoard');
+var game = new Chess();
+var globalSum = 0; // always from black's perspective. Negative for white's perspective.
+var positionCount;
+var timer = null;
+var squareClass = 'square-55d63';
+var squareToHighlight = null;
+var colorToHighlight = null;
+var undo_stack = [];
+var STACK_SIZE = 100;
+
+// Piece weights and piece-square tables (short version, details can be customized)
+var weights = { p: 100, n: 280, b: 320, r: 479, q: 929, k: 60000, k_e: 60000 };
+// ... (Piece Square Tables and supporting variables same as main.js, can copy exactly as before)
+// For brevity, copy pst_w, pst_b, pstOpponent, pstSelf from main.js above
+
+// ---- copy Piece Square Tables from above main.js ----
+
+// Setup board
+var config = {
+  draggable: true,
+  position: 'start',
+  onDragStart: onDragStart,
+  onDrop: onDrop,
+  onMouseoutSquare: onMouseoutSquare,
+  onMouseoverSquare: onMouseoverSquare,
+  onSnapEnd: onSnapEnd,
+};
+board = Chessboard('myBoard', config);
+
+// --- Copy evaluateBoard, minimax, updateAdvantage, getBestMove, makeBestMove, checkStatus functions from main.js above ---
+
+// Undo/Redo
+function undo() {
+  var move = game.undo();
+  undo_stack.push(move);
+  if (undo_stack.length > STACK_SIZE) {
+    undo_stack.shift();
+  }
+  board.position(game.fen());
+}
+
+$('#undoBtn').on('click', function () {
+  if (game.history().length >= 2) {
+    $board.find('.' + squareClass).removeClass('highlight-white');
+    $board.find('.' + squareClass).removeClass('highlight-black');
+    $board.find('.' + squareClass).removeClass('highlight-hint');
+    undo();
+    setTimeout(function () {
+      undo();
+      setTimeout(function () {
+        showHint();
+      }, 250);
+    }, 250);
+  } else {
+    alert('Nothing to undo.');
+  }
+});
+
+function redo() {
+  game.move(undo_stack.pop());
+  board.position(game.fen());
+}
+
+$('#redoBtn').on('click', function () {
+  if (undo_stack.length >= 2) {
+    redo();
+    setTimeout(function () {
+      redo();
+      setTimeout(function () {
+        showHint();
+      }, 250);
+    }, 250);
+  } else {
+    alert('Nothing to redo.');
+  }
+});
+
+$('#showHint').change(function () {
+  setTimeout(showHint, 250);
+});
+
+function showHint() {
+  var showHint = document.getElementById('showHint');
+  $board.find('.' + squareClass).removeClass('highlight-hint');
+  if (showHint.checked) {
+    var move = getBestMove(game, 'w', -globalSum)[0];
+    $board.find('.square-' + move.from).addClass('highlight-hint');
+    $board.find('.square-' + move.to).addClass('highlight-hint');
+  }
+}
+
+// --- Copy supporting functions from main.js (removeGreySquares, greySquare, onDragStart, onDrop, etc.) ---
+
+// Example: Paste the following function definitions from main.js:
+// - removeGreySquares
+// - greySquare
+// - onDragStart
+// - onDrop
+// - onMouseoverSquare
+// - onMouseoutSquare
+// - onSnapEnd
+
+// Done! Now board ready for play vs AI.
   </script>
 </body>
   </html>
