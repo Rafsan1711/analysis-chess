@@ -54,23 +54,87 @@
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
     <script src="js/chess.js"></script>
     <script>
-    // ===== Pieces config =====
-    var pieceImgConfig = {
-      'wK': 'pieces/wK.svg',
-      'wQ': 'pieces/wQ.svg',
-      'wR': 'pieces/wR.svg',
-      'wB': 'pieces/wB.svg',
-      'wN': 'pieces/wN.svg',
-      'wP': 'pieces/wP.svg',
-      'bK': 'pieces/bK.svg',
-      'bQ': 'pieces/bQ.svg',
-      'bR': 'pieces/bR.svg',
-      'bB': 'pieces/bB.svg',
-      'bN': 'pieces/bN.svg',
-      'bP': 'pieces/bP.svg'
+    // ===== Candidate piece filenames (we will probe these and pick first that loads) =====
+    var pieceCandidates = {
+      'wK': ['pieces/wK.svg', 'pieces/wKing.svg', 'pieces/WK.svg'],
+      'wQ': ['pieces/wQ.svg', 'pieces/wQueen.svg', 'pieces/WQ.svg'],
+      'wR': ['pieces/wR.svg', 'pieces/wRook.svg', 'pieces/WR.svg'],
+      'wB': ['pieces/wB.svg', 'pieces/wBishop.svg', 'pieces/WB.svg'],
+      'wN': ['pieces/wN.svg', 'pieces/wKnight.svg', 'pieces/WN.svg', 'pieces/wn.svg'],
+      'wP': ['pieces/wP.svg', 'pieces/wPawn.svg', 'pieces/WP.svg'],
+      'bK': ['pieces/bK.svg', 'pieces/bKing.svg', 'pieces/BK.svg'],
+      'bQ': ['pieces/bQ.svg', 'pieces/bQueen.svg', 'pieces/BQ.svg'],
+      'bR': ['pieces/bR.svg', 'pieces/bRook.svg', 'pieces/BR.svg'],
+      'bB': ['pieces/bB.svg', 'pieces/bBishop.svg', 'pieces/BB.svg'],
+      // NOTE: knights often have inconsistent filenames on some assets -> include many fallbacks
+      'bN': ['pieces/bN.svg', 'pieces/bKnight.svg', 'pieces/BN.svg', 'pieces/bn.svg', 'pieces/black-knight.svg'],
+      'bP': ['pieces/bP.svg', 'pieces/bPawn.svg', 'pieces/BP.svg']
     };
 
-    // ===== Chess AI Logic =====
+    // This will hold the resolved working URL for each piece (after probing)
+    var pieceImgResolved = {};
+
+    // Helper to load an image and return a Promise
+    function loadImage(url) {
+      return new Promise(function(resolve, reject) {
+        var img = new Image();
+        img.onload = function() { resolve(url); };
+        img.onerror = function() { reject(url); };
+        img.src = url;
+      });
+    }
+
+    // Resolve candidates for a single piece: try each candidate sequentially
+    async function resolvePiece(pieceKey, candidates) {
+      for (var i = 0; i < candidates.length; i++) {
+        try {
+          var ok = await loadImage(candidates[i]);
+          console.log('Loaded piece', pieceKey, '->', candidates[i]);
+          return candidates[i];
+        } catch (e) {
+          // failed to load this candidate, try next
+          // console.warn('Failed to load', candidates[i]);
+        }
+      }
+      // none worked -> return null (caller will fallback)
+      console.warn('No image found for', pieceKey, 'tried:', candidates);
+      return null;
+    }
+
+    // Resolve all pieces; returns a Promise that resolves when done
+    async function resolveAllPieces() {
+      var keys = Object.keys(pieceCandidates);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var resolved = await resolvePiece(k, pieceCandidates[k]);
+        pieceImgResolved[k] = resolved;
+      }
+      // if any essential piece not found, try fallback strategies:
+      // e.g., if bN not found, try to use wN (mirrored style) or a generic placeholder
+      if (!pieceImgResolved['bN']) {
+        if (pieceImgResolved['wN']) {
+          console.warn('Falling back: using white knight image for bN');
+          pieceImgResolved['bN'] = pieceImgResolved['wN'];
+        } else {
+          console.warn('No knight images found at all; using first available image as placeholder.');
+          // pick any available image
+          for (var p in pieceImgResolved) {
+            if (pieceImgResolved[p]) { pieceImgResolved['bN'] = pieceImgResolved[p]; break; }
+          }
+        }
+      }
+      // ensure all keys have SOME value (if still null, pick any valid one)
+      for (var k2 in pieceImgResolved) {
+        if (!pieceImgResolved[k2]) {
+          for (var p2 in pieceImgResolved) {
+            if (pieceImgResolved[p2]) { pieceImgResolved[k2] = pieceImgResolved[p2]; break; }
+          }
+        }
+      }
+      return pieceImgResolved;
+    }
+
+    // ===== Chess AI Logic (unchanged) =====
     var weights = { p: 100, n: 280, b: 320, r: 479, q: 929, k: 60000, k_e: 60000 };
     var pst_w = {
       p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
@@ -188,42 +252,67 @@
       return bestMove;
     }
 
-    // ===== Chessboard JS Config =====
-    var config = {
-      draggable: true,
-      position: 'start',
-      pieceTheme: function(piece) {
-        return pieceImgConfig[piece];
-      },
-      moveSpeed: 250,
-      snapbackSpeed: 200,
-      snapSpeed: 100,
-      onDragStart: function(source, piece) {
-        // Don't allow drag if game is over or not your piece
-        if (game.game_over()) return false;
-        if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
-            (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
-      },
-      onDrop: function(source, target) {
-        // Try to move, if illegal play incorrect sound
-        var move = game.move({ from: source, to: target, promotion: 'q' });
-        if (move === null) {
-          playSound("incorrect");
-          return 'snapback';
-        }
-        // After drop, animate, sound, and bot move
-        // Indicate this came from a drag so we don't immediately re-set board.position (avoid double animation)
-        doMoveLogic(move, source, target, true);
-        return;
-      },
-      onSnapEnd: function() {
-        // ONLY update the board here after a drag-based move finished its internal animation.
-        board.position(game.fen());
+    // ===== Initialize board AFTER resolving piece images =====
+    (async function init() {
+      try {
+        await resolveAllPieces();
+      } catch (e) {
+        console.error('Error resolving piece images:', e);
       }
-    };
-    board = Chessboard('myBoard', config);
 
-    // ===== Piece Move Logic (drag+click) + Sound + Effects =====
+      // If something very strange happened and a piece url is undefined, use a safe fallback
+      var defaultAny = null;
+      for (var k in pieceImgResolved) { if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; } }
+      for (var kk in pieceImgResolved) { if (!pieceImgResolved[kk]) pieceImgResolved[kk] = defaultAny; }
+
+      // Build a simple pieceTheme function that returns the resolved map
+      function pieceTheme(piece) {
+        // piece is like 'wN' or 'bK'
+        if (pieceImgResolved && pieceImgResolved[piece]) return pieceImgResolved[piece];
+        // fallback
+        console.warn('No resolved image for', piece, 'using a fallback.');
+        return defaultAny;
+      }
+
+      // Now create the board config (kept same as before except pieceTheme now uses resolved map)
+      var config = {
+        draggable: true,
+        position: 'start',
+        pieceTheme: pieceTheme,
+        moveSpeed: 250,
+        snapbackSpeed: 200,
+        snapSpeed: 100,
+        onDragStart: function(source, piece) {
+          // Don't allow drag if game is over or not your piece
+          if (game.game_over()) return false;
+          if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+              (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
+        },
+        onDrop: function(source, target) {
+          // Try to move, if illegal play incorrect sound
+          var move = game.move({ from: source, to: target, promotion: 'q' });
+          if (move === null) {
+            playSound("incorrect");
+            return 'snapback';
+          }
+          // Indicate this came from a drag so we don't immediately re-set board.position (avoid double animation)
+          doMoveLogic(move, source, target, true);
+          return;
+        },
+        onSnapEnd: function() {
+          // ONLY update the board here after a drag-based move finished its internal animation.
+          board.position(game.fen());
+        }
+      };
+      board = Chessboard('myBoard', config);
+
+      // Fix: make Chessboard.js piece movement always smooth (keeps the CSS transition)
+      setTimeout(function() {
+        $('#myBoard .chessboard-js-piece').css('transition', 'top 0.25s, left 0.25s');
+      }, 1000);
+    })();
+
+    // ===== Piece Move Logic (drag+click) + Sound + Effects (unchanged) =====
     function doMoveLogic(move, source, target, isDrag) {
       playMoveEffectAndSound(move);
       boardMoveEffect(source);
@@ -256,7 +345,6 @@
       }, 350);
     }
 
-    // Sound/Effect logic for move
     function playMoveEffectAndSound(move) {
       // Castling
       if (move.flags.includes('k') || move.flags.includes('q')) {
@@ -323,8 +411,6 @@
         if (legalTargets.includes(square)) {
           var move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
           if (move === null) {
-            // This branch should rarely happen (we precomputed legalTargets),
-            // but if it does, it's a real illegal move -> play incorrect sound
             playSound("incorrect");
             clearHighlights();
             selectedSquare = null;
@@ -332,7 +418,6 @@
             board.position(game.fen());
             return;
           }
-          // click-based move (not drag) -> pass isDrag = false so doMoveLogic will update board now
           doMoveLogic(move, selectedSquare, square, false);
           return;
         }
@@ -368,11 +453,6 @@
       legalTargets = [];
     });
 
-    // Fix: make Chessboard.js piece movement always smooth (keeps the CSS transition)
-    setTimeout(function() {
-      $('#myBoard .chessboard-js-piece').css('transition', 'top 0.25s, left 0.25s');
-    }, 1000);
-
     </script>
 </body>
-  </html>
+    </html>
