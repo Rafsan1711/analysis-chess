@@ -4,15 +4,7 @@
   <meta charset="UTF-8">
   <title>Chess Analysis Board</title>
 <!-- Chessboard JS and CSS -->
-<link rel="stylesheet"
-    href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
-<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
-<!-- jQuery -->
-<script src="https://code.jquery.com/jquery-3.5.1.js"></script>
-<!-- Chess JS -->
-<script src="https://cdn.jsdelivr.net/npm/chess.js@0.13.4/chess.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css" />
-  <style>
+ <style>
     body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
     #board { width: 400px; margin: 20px; }
     #controls { margin: 10px; }
@@ -43,16 +35,7 @@
 </head>
 <body>
   <h2>Chess Analysis Board</h2>
-  <div id="board"></div>
-
-  <div id="controls">
-    <button onclick="undoMove()">Undo</button>
-    <button onclick="redoMove()">Redo</button>
-  </div>
-
-  <div id="info">Best move: <span id="bestmove">N/A</span></div>
-<!-- Chess Board Container -->
-<div id="myBoard"></div>
+  <div id="myBoard"></div>
 <div style="margin: 1em 0; text-align: center;">
     <button id="undoBtn" class="btn btn-danger">Undo</button>
     <button id="redoBtn" class="btn btn-success">Redo</button>
@@ -87,75 +70,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.min.js"></script>
 
   <script>
-    const game = new Chess();
-    const board = Chessboard('board', {
-      draggable: true,
-      position: 'start',
-      onDrop: onDrop
-    });
-
-    const engine = Stockfish();
-    engine.postMessage("uci");
-
-    let undoStack = [];
-    let redoStack = [];
-
-    function onDrop(source, target) {
-      let move = game.move({ from: source, to: target, promotion: 'q' });
-      if (move === null) return 'snapback';
-      undoStack.push(move);
-      redoStack = [];
-      board.position(game.fen());
-      highlightMove(move);
-      analyzePosition();
-    }
-
-    function undoMove() {
-      if (undoStack.length === 0) return;
-      let move = game.undo();
-      redoStack.push(move);
-      board.position(game.fen());
-    }
-
-    function redoMove() {
-      if (redoStack.length === 0) return;
-      let move = redoStack.pop();
-      game.move(move);
-      undoStack.push(move);
-      board.position(game.fen());
-    }
-
-    function analyzePosition() {
-      engine.postMessage("position fen " + game.fen());
-      engine.postMessage("go depth 12");
-
-      engine.onmessage = function(event) {
-        let line = event.data;
-        if (typeof line === "string" && line.startsWith("bestmove")) {
-          let best = line.split(" ")[1];
-          document.getElementById("bestmove").innerText = best;
-          markBestMove(best);
-        }
-      };
-    }
-
-    function highlightMove(move) {
-      removeHighlights();
-      document.querySelector(`[data-square='${move.from}']`)?.classList.add("highlight");
-      document.querySelector(`[data-square='${move.to}']`)?.classList.add("highlight");
-    }
-
-    function removeHighlights() {
-      document.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
-    }
-
-    function markBestMove(bestMove) {
-      removeHighlights();
-      const from = bestMove.substring(0,2);
-      const to = bestMove.substring(2,4);
-      document.querySelector(`[data-square='${from}']`)?.classList.add("highlight");
-      document.querySelector(`[data-square='${to}']`)?.classList.add("highlight");
-    }
     // Minimal Chess AI Board JS (for copy-paste integration)
 
 var board = null;
