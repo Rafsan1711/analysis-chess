@@ -3,7 +3,7 @@
 <head>
     <title>Chess Bot Minimal</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Bootstrap CSS (minimal for board centering) -->
+    <!-- Bootstrap for centering -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" crossorigin="anonymous">
     <!-- Chessboard JS CSS -->
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
@@ -12,7 +12,7 @@
             background: #fafafa;
         }
         .board-container {
-            max-width: 400px;
+            max-width: 420px;
             margin: 60px auto 0 auto;
         }
         #myBoard {
@@ -26,16 +26,12 @@
     <div class="board-container">
         <div id="myBoard"></div>
     </div>
-    <!-- jQuery (for Chessboard.js, minimal) -->
+    <!-- jQuery for Chessboard.js -->
     <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
     <!-- Chessboard JS -->
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
-    <!-- Chess.js (minimal, only required for board logic) -->
-    <script>
-    // Chess.js core (minimal, only for moves, borrowed from chess.js)
-    // For brevity, use CDN chess.js, but you can inline if you need.
-    </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
+    <!-- Local chess.js -->
+    <script src="js/chess.js"></script>
     <script>
     // ===== Minimal Chess Bot Logic START =====
 
