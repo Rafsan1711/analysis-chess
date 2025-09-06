@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Chess Bot Minimal + Click + Sound + Effect</title>
+    <title>Chess Bot Minimal + Drag + Click + Smooth Move + Sound + Effect</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Chessboard JS CSS -->
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
     <style>
         body {
@@ -31,6 +30,11 @@
             0% { box-shadow: 0 0 10px 4px #33dd33 inset; }
             100% { box-shadow: none; }
         }
+        /* Smooth piece movement fix for Chessboard.js */
+        .chessboard-js-piece {
+            transition: top 0.25s, left 0.25s;
+            z-index: 10;
+        }
     </style>
 </head>
 <body>
@@ -45,11 +49,8 @@
     <audio id="incorrectMoveSound" src="sounds/incorrect-move.mp3"></audio>
     <audio id="checkSound" src="sounds/check.mp3"></audio>
     <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
-    <!-- jQuery for Chessboard.js -->
     <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
-    <!-- Chessboard JS -->
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
-    <!-- Local chess.js -->
     <script src="js/chess.js"></script>
     <script>
     // ===== Pieces config =====
@@ -95,7 +96,6 @@
     var game = new Chess();
     var globalSum = 0; // from black's perspective
 
-    // Sound play helper
     function playSound(type) {
       var el = null;
       switch(type) {
@@ -194,13 +194,26 @@
       pieceTheme: function(piece) {
         return pieceImgConfig[piece];
       },
+      moveSpeed: 250,
+      snapbackSpeed: 200,
+      snapSpeed: 100,
       onDragStart: function(source, piece) {
+        // Don't allow drag if game is over or not your piece
         if (game.game_over()) return false;
         if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
             (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
       },
       onDrop: function(source, target) {
-        return handleMove(source, target, "drag");
+        // Try to move, if illegal play incorrect sound
+        var move = game.move({ from: source, to: target, promotion: 'q' });
+        if (move === null) {
+          playSound("incorrect");
+          board.position(game.fen()); // snapback to current position
+          return 'snapback';
+        }
+        // After drop, animate, sound, and bot move
+        doMoveLogic(move, source, target);
+        return;
       },
       onSnapEnd: function() {
         board.position(game.fen());
@@ -209,21 +222,14 @@
     board = Chessboard('myBoard', config);
 
     // ===== Piece Move Logic (drag+click) + Sound + Effects =====
-    function handleMove(source, target, moveType) {
-      // Try to move
-      var move = game.move({ from: source, to: target, promotion: 'q' });
-      if (move === null) {
-        playSound("incorrect");
-        clearHighlights();
-        return 'snapback';
-      }
-      // Sound + Effect for player move
+    function doMoveLogic(move, source, target) {
       playMoveEffectAndSound(move);
       boardMoveEffect(source);
       boardMoveEffect(target);
       globalSum = evaluateBoard(game, move, globalSum, 'b');
       board.position(game.fen());
       clearHighlights();
+      selectedSquare = null;
       // Bot move
       setTimeout(function() {
         if (!game.game_over() && game.turn() === 'b') {
@@ -237,9 +243,7 @@
             board.position(game.fen());
           }
         }
-      }, 300);
-      selectedSquare = null;
-      return;
+      }, 350);
     }
 
     // Sound/Effect logic for move
@@ -268,7 +272,7 @@
       }
     }
 
-    // ===== Click-to-move implementation =====
+    // ===== Click-to-move implementation (like chess.com/lichess) =====
     var selectedSquare = null;
     var legalTargets = [];
 
@@ -283,59 +287,78 @@
       });
     }
 
-    // Square click logic
+    // Click logic: select, show targets, click target to move
     $('#myBoard').on('click', '.square-55d63', function() {
       var square = $(this).attr('data-square');
       if (game.game_over()) return;
-      clearHighlights();
-
+      // If no selection: select your own piece
       if (!selectedSquare) {
         var piece = game.get(square);
-        // Only select your own piece
         if (!piece || piece.color !== game.turn()) return;
         selectedSquare = square;
+        clearHighlights();
         $('#myBoard .square-' + square).addClass('highlight-click');
-
-        // Highlight legal targets
         var moves = game.moves({ square: square, verbose: true });
         legalTargets = moves.map(function(move) { return move.to; });
         highlightSquares(legalTargets, 'highlight-target');
       } else {
-        // If clicked on same square, deselect
+        // If clicked same square, deselect
         if (square === selectedSquare) {
           selectedSquare = null;
           legalTargets = [];
           clearHighlights();
           return;
         }
-        // If clicked on a legal target, move
+        // If clicked target square, try move
         if (legalTargets.includes(square)) {
-          handleMove(selectedSquare, square, "click");
-        } else {
-          // If clicked on another own piece, switch selection
-          var piece2 = game.get(square);
-          if (piece2 && piece2.color === game.turn()) {
-            selectedSquare = square;
-            $('#myBoard .square-' + square).addClass('highlight-click');
-            var moves = game.moves({ square: square, verbose: true });
-            legalTargets = moves.map(function(move) { return move.to; });
-            highlightSquares(legalTargets, 'highlight-target');
-          } else {
-            // invalid target, deselect
+          var move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+          if (move === null) {
+            playSound("incorrect");
+            clearHighlights();
             selectedSquare = null;
             legalTargets = [];
-            clearHighlights();
+            board.position(game.fen());
+            return;
           }
+          doMoveLogic(move, selectedSquare, square);
+          return;
         }
+        // If clicked another own piece, switch selection
+        var piece2 = game.get(square);
+        if (piece2 && piece2.color === game.turn()) {
+          selectedSquare = square;
+          clearHighlights();
+          $('#myBoard .square-' + square).addClass('highlight-click');
+          var moves = game.moves({ square: square, verbose: true });
+          legalTargets = moves.map(function(move) { return move.to; });
+          highlightSquares(legalTargets, 'highlight-target');
+          return;
+        }
+        // Else, deselect
+        selectedSquare = null;
+        legalTargets = [];
+        clearHighlights();
       }
     });
-
-    // Allow drag and click to work side by side
+    // Deselect on outside click
+    $(document).on('click', function(e){
+      if ($(e.target).closest('#myBoard').length === 0) {
+        clearHighlights();
+        selectedSquare = null;
+        legalTargets = [];
+      }
+    });
+    // If drag starts, clear highlight
     $('#myBoard').on('mousedown', '.square-55d63', function() {
       clearHighlights();
       selectedSquare = null;
       legalTargets = [];
     });
+
+    // Fix: make Chessboard.js piece movement always smooth
+    setTimeout(function() {
+      $('#myBoard .chessboard-js-piece').css('transition', 'top 0.25s, left 0.25s');
+    }, 1000);
 
     </script>
 </body>
