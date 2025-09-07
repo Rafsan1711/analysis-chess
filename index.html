@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Chess Bot + Stockfish (Blob Worker fallback)</title>
+  <title>Chess Bot + Stockfish (robust move handling)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
   <style>
@@ -36,16 +36,13 @@
   <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
 
-  <!-- Don't include stockfish.wasm.js here to avoid wasm-relative fetch 404 issues.
-       We'll load stockfish.js into a Blob worker dynamically. -->
-
-  <!-- local chess logic -->
+  <!-- local chess lib -->
   <script src="js/chess.js"></script>
 
   <script>
-  /* ============================
-     Piece resolver (same as before)
-     ============================ */
+  // -------------------------
+  // piece resolver (same)
+  // -------------------------
   var pieceCandidates = {
     'wK':['pieces/wK.svg','pieces/wKing.svg','pieces/WK.svg'],
     'wQ':['pieces/wQ.svg','pieces/wQueen.svg','pieces/WQ.svg'],
@@ -84,9 +81,9 @@
     return pieceImgResolved;
   }
 
-  /* ============================
-     Engine (Blob worker) + adaptive options
-     ============================ */
+  // -------------------------
+  // engine Blob worker & options
+  // -------------------------
   var board = null;
   var game = new Chess();
   var globalSum = 0;
@@ -94,7 +91,7 @@
   var stockfishEngine = null;
   var engineReady = false;
   var engineBusy = false;
-  var stockfishMovetime = 800; // will be set adaptively
+  var stockfishMovetime = 800;
   var engineOpts = {};
 
   function computeEngineOptions(){
@@ -109,16 +106,12 @@
     return engineOpts;
   }
 
-  // Create a Blob worker that importScripts the stockfish.js from CDN (avoids new Worker(CDNurl) CORS error)
   function createStockfishBlobWorker(cdnUrl) {
     try {
-      var blobCode = "importScripts('" + cdnUrl + "');"; 
-      // stockfish.js worker script when imported will set up onmessage handler itself.
-      // We do not add anything else here — the imported script already behaves like a worker script.
+      var blobCode = "importScripts('" + cdnUrl + "');";
       var blob = new Blob([blobCode], {type: 'application/javascript'});
       var blobURL = URL.createObjectURL(blob);
       var w = new Worker(blobURL);
-      // revoke object URL after some time (optional)
       setTimeout(function(){ URL.revokeObjectURL(blobURL); }, 5000);
       return w;
     } catch (e) {
@@ -132,13 +125,10 @@
     console.log('Engine options:', opts);
     document.getElementById('engineStatus').innerText = 'Engine: loading...';
 
-    // Try to use STOCKFISH wrapper first (if present) — but likely not because we didn't include wasm wrapper.
     try {
       if (typeof STOCKFISH === 'function') {
-        // some builds expose a factory
         stockfishEngine = STOCKFISH();
       } else {
-        // Create a blob-based worker that imports the stockfish.js from CDN
         var cdn = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
         stockfishEngine = createStockfishBlobWorker(cdn);
       }
@@ -154,54 +144,49 @@
       return;
     }
 
-    // attach message handler
     stockfishEngine.onmessage = function(ev) {
       var line = (ev.data || ev).toString();
       console.log('stockfish:', line);
       if (line.indexOf('uciok') !== -1 || line.indexOf('readyok') !== -1) {
         engineReady = true;
-        document.getElementById('engineStatus').innerText = 'Engine: ready (Stockfish, skill ' + opts.skill + ', threads ' + opts.threads + ', hash ' + opts.hash + 'MB)';
+        document.getElementById('engineStatus').innerText =
+          'Engine: ready (Stockfish, skill ' + opts.skill + ', threads ' + opts.threads + ', hash ' + opts.hash + 'MB)';
       }
     };
 
-    // configure engine
     try {
       stockfishEngine.postMessage('uci');
       stockfishEngine.postMessage('setoption name Threads value ' + opts.threads);
       stockfishEngine.postMessage('setoption name Hash value ' + opts.hash);
-      // set strong skill if supported
       stockfishEngine.postMessage('setoption name Skill Level value ' + opts.skill);
-      stockfishEngine.postMessage('setoption name UCI_LimitStrength value false');
+      stockfishEngine.postMessage('setoption name UCI_LimitStrength value false'); // may be ignored
       stockfishEngine.postMessage('isready');
     } catch (e) {
       console.error('Error configuring stockfish:', e);
     }
   }
 
-  // Query stockfish for bestmove
   function stockfishBestMove(fen, movetimeMs) {
     return new Promise(function(resolve, reject) {
       if (!stockfishEngine || !engineReady) return reject('engine not ready');
       if (engineBusy) return reject('engine busy');
       engineBusy = true;
 
-      // save existing handler
-      var prevHandler = stockfishEngine.onmessage;
-
+      var prev = stockfishEngine.onmessage;
       var capture = function(ev) {
         var line = (ev.data || ev).toString().trim();
         if (!line) return;
-        // capture bestmove line
+        // console.log('SF line:', line);
         if (line.indexOf('bestmove') === 0) {
           var parts = line.split(/\s+/);
           var best = parts[1];
           engineBusy = false;
-          // restore handler
-          stockfishEngine.onmessage = prevHandler;
+          stockfishEngine.onmessage = prev;
           resolve(best);
         }
       };
 
+      // set temporary handler
       stockfishEngine.onmessage = capture;
 
       try {
@@ -209,27 +194,23 @@
         stockfishEngine.postMessage('go movetime ' + parseInt(movetimeMs,10));
       } catch (e) {
         engineBusy = false;
-        stockfishEngine.onmessage = prevHandler;
+        stockfishEngine.onmessage = prev;
         return reject(e);
       }
 
-      // safety timeout
       setTimeout(function() {
         if (engineBusy) {
           engineBusy = false;
-          stockfishEngine.onmessage = prevHandler;
+          stockfishEngine.onmessage = prev;
           reject('timeout');
         }
       }, Math.max(8000, movetimeMs + 4000));
     });
   }
 
-  /* ============================
-     Old minimax kept as fallback
-     (identical to your previous code)
-     ============================ */
+  // ------------- minimax fallback (unchanged) --------------
   var weights = { p:100,n:280,b:320,r:479,q:929,k:60000,k_e:60000 };
-  var pst_w = { /* ... same PST arrays ... keep exact arrays from your code */ 
+  var pst_w = {
     p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
     n: [[-66,-53,-75,-75,-10,-55,-58,-70],[-3,-6,100,-36,4,62,-4,-14],[10,67,1,74,73,27,62,-2],[24,24,45,37,33,41,25,17],[-1,5,31,21,22,35,2,0],[-18,10,13,22,18,15,11,-14],[-23,-15,2,0,2,0,-23,-20],[-74,-23,-26,-24,-19,-35,-22,-69]],
     b: [[-59,-78,-82,-76,-23,-107,-37,-50],[-11,20,35,-42,-39,31,2,-22],[-9,39,-32,41,52,-10,28,-14],[25,17,20,34,26,25,15,10],[13,10,17,23,17,16,0,7],[14,25,24,15,8,25,20,15],[19,20,11,6,7,6,20,16],[-7,2,-15,-12,-14,-15,-10,-10]],
@@ -301,9 +282,9 @@
     return minimax(game, depth, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, true, currSum, color)[0];
   }
 
-  /* ============================
-     UI init after resolving pieces
-     ============================ */
+  // -------------------------
+  // UI init
+  // -------------------------
   (async function init() {
     try { await resolveAllPieces(); } catch(e){ console.error('resolve pieces failed', e); }
     initStockfish();
@@ -334,9 +315,9 @@
     setTimeout(function(){ $('#myBoard .chessboard-js-piece').css('transition','top 0.25s, left 0.25s'); }, 1000);
   })();
 
-  /* ============================
-     Sounds + move logic (same behaviour)
-     ============================ */
+  // -------------------------
+  // sounds/effects/move logic (with robust SF handling)
+  // -------------------------
   function playSound(type) {
     var el=null;
     switch(type){
@@ -366,7 +347,7 @@
     else if (game.in_check()) playSound('check');
   }
 
-  function doMoveLogic(move, source, target, isDrag) {
+  async function doMoveLogic(move, source, target, isDrag) {
     playMoveEffectAndSound(move);
     boardMoveEffect(source);
     boardMoveEffect(target);
@@ -379,28 +360,65 @@
     setTimeout(async function(){
       if (game.game_over() || game.turn() !== 'b') return;
 
+      // prefer stockfish
       if (aiMode === 'stockfish' && stockfishEngine && engineReady) {
         try {
           var fen = game.fen();
-          var best = await stockfishBestMove(fen, stockfishMovetime).catch(()=>null);
-          if (best) {
-            var from = best.slice(0,2), to = best.slice(2,4), promotion = (best.length>4 ? best[4] : 'q');
-            var botMove = game.move({ from: from, to: to, promotion: promotion });
-            if (botMove) {
-              playMoveEffectAndSound(botMove);
-              boardMoveEffect(botMove.from);
-              boardMoveEffect(botMove.to);
-              globalSum = evaluateBoard(game, botMove, globalSum, 'b');
-              board.position(game.fen());
-              return;
+          console.log('Requesting SF bestmove for fen:', fen);
+          var best = await stockfishBestMove(fen, stockfishMovetime).catch(function(e){ console.warn('SF query failed:', e); return null; });
+          console.log('Stockfish answered bestmove:', best);
+
+          if (best && best !== '(none)') {
+            // parse UCI move
+            var from = best.slice(0,2);
+            var to = best.slice(2,4);
+            var promotion = (best.length > 4) ? best[4] : null;
+
+            // Validate against legal moves (verbose)
+            var legals = game.moves({ verbose: true });
+            console.log('Legal moves count for validation:', legals.length);
+            var matched = null;
+            for (var i = 0; i < legals.length; i++) {
+              var m = legals[i];
+              if (m.from === from && m.to === to) {
+                // if promotion present, check it
+                if (promotion) {
+                  // some UCI promotions are lowercase q,r,b,n
+                  if (m.promotion && m.promotion === promotion.toLowerCase()) { matched = m; break; }
+                  // if move object doesn't have promotion but UCI has, skip
+                } else {
+                  matched = m; break;
+                }
+              }
             }
+
+            if (matched) {
+              // matched legal move -> apply using game.move with verbose object's SAN or from/to
+              console.log('Applying SF move (validated):', matched);
+              // game.move accepts verbose object.san or from/to object; we use from/to to preserve promotion option
+              var botMove = game.move({ from: matched.from, to: matched.to, promotion: matched.promotion || 'q' });
+              if (botMove) {
+                playMoveEffectAndSound(botMove);
+                boardMoveEffect(botMove.from);
+                boardMoveEffect(botMove.to);
+                globalSum = evaluateBoard(game, botMove, globalSum, 'b');
+                board.position(game.fen());
+                return;
+              } else {
+                console.warn('game.move returned null despite matched legal move:', matched);
+              }
+            } else {
+              console.warn('Stockfish suggested move not found in legal moves:', best, '— falling back to minimax');
+            }
+          } else {
+            console.warn('Stockfish returned no usable bestmove:', best);
           }
-        } catch(e){
-          console.warn('Stockfish error -> fallback minimax', e);
+        } catch (e) {
+          console.warn('Stockfish error during move apply -> fallback to minimax', e);
         }
       }
 
-      // fallback minimax
+      // fallback to minimax if SF not used or failed
       if (!game.game_over() && game.turn() === 'b') {
         var botMove = getBestMoveMinimax(game, 'b', globalSum);
         if (botMove) {
@@ -410,14 +428,16 @@
           boardMoveEffect(botMove.to);
           globalSum = evaluateBoard(game, botMove, globalSum, 'b');
           board.position(game.fen());
+        } else {
+          console.warn('Minimax did not return move — position may be terminal.');
         }
       }
     }, 350);
   }
 
-  /* ============================
-     Click-to-move handlers
-     ============================ */
+  // -------------------------
+  // click-to-move handlers (unchanged)
+  // -------------------------
   var selectedSquare = null;
   var legalTargets = [];
 
