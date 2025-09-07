@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Chess Bot + Stockfish (robust move handling)</title>
+  <title>Chess Bot + Stockfish (robust, no-freeze)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
   <style>
@@ -40,9 +40,9 @@
   <script src="js/chess.js"></script>
 
   <script>
-  // -------------------------
-  // piece resolver (same)
-  // -------------------------
+  /* ============================
+     Piece resolver (unchanged)
+     ============================ */
   var pieceCandidates = {
     'wK':['pieces/wK.svg','pieces/wKing.svg','pieces/WK.svg'],
     'wQ':['pieces/wQ.svg','pieces/wQueen.svg','pieces/WQ.svg'],
@@ -81,18 +81,19 @@
     return pieceImgResolved;
   }
 
-  // -------------------------
-  // engine Blob worker & options
-  // -------------------------
+  /* ============================
+     Engine (Blob worker) + robust handlers
+     ============================ */
   var board = null;
   var game = new Chess();
   var globalSum = 0;
-  var aiMode = 'stockfish'; // or 'minimax'
+  var aiMode = 'stockfish'; // 'stockfish' or 'minimax'
   var stockfishEngine = null;
   var engineReady = false;
   var engineBusy = false;
   var stockfishMovetime = 800;
   var engineOpts = {};
+  var engineDefaultHandler = null;
 
   function computeEngineOptions(){
     var hwc = navigator.hardwareConcurrency || 2;
@@ -120,6 +121,12 @@
     }
   }
 
+  function textFromEvent(ev) {
+    var d = (ev && ev.data !== undefined) ? ev.data : ev;
+    if (typeof d === 'string') return d;
+    try { return '' + d; } catch(e){ return String(d); }
+  }
+
   function initStockfish() {
     var opts = computeEngineOptions();
     console.log('Engine options:', opts);
@@ -144,71 +151,90 @@
       return;
     }
 
-    stockfishEngine.onmessage = function(ev) {
-      var line = (ev.data || ev).toString();
+    // stable default handler (always restore to this)
+    engineDefaultHandler = function(ev) {
+      var line = textFromEvent(ev).trim();
+      if (!line) return;
       console.log('stockfish:', line);
-      if (line.indexOf('uciok') !== -1 || line.indexOf('readyok') !== -1) {
+      if (line.indexOf('uciok') !== -1) {
+        // nothing
+      }
+      if (line.indexOf('readyok') !== -1) {
         engineReady = true;
         document.getElementById('engineStatus').innerText =
           'Engine: ready (Stockfish, skill ' + opts.skill + ', threads ' + opts.threads + ', hash ' + opts.hash + 'MB)';
       }
     };
 
+    // set default handler
     try {
+      stockfishEngine.onmessage = engineDefaultHandler;
       stockfishEngine.postMessage('uci');
       stockfishEngine.postMessage('setoption name Threads value ' + opts.threads);
       stockfishEngine.postMessage('setoption name Hash value ' + opts.hash);
       stockfishEngine.postMessage('setoption name Skill Level value ' + opts.skill);
-      stockfishEngine.postMessage('setoption name UCI_LimitStrength value false'); // may be ignored
+      // some builds ignore this option; safe to call
+      stockfishEngine.postMessage('setoption name UCI_LimitStrength value false');
       stockfishEngine.postMessage('isready');
     } catch (e) {
       console.error('Error configuring stockfish:', e);
     }
   }
 
+  // Ask stockfish for bestmove in a safe way — ensures onmessage restore & engineBusy reset always
   function stockfishBestMove(fen, movetimeMs) {
     return new Promise(function(resolve, reject) {
       if (!stockfishEngine || !engineReady) return reject('engine not ready');
       if (engineBusy) return reject('engine busy');
       engineBusy = true;
 
-      var prev = stockfishEngine.onmessage;
+      // set up temporary capture handler
       var capture = function(ev) {
-        var line = (ev.data || ev).toString().trim();
+        var line = textFromEvent(ev).trim();
         if (!line) return;
-        // console.log('SF line:', line);
+        // sometimes SF outputs info lines; we want bestmove
         if (line.indexOf('bestmove') === 0) {
-          var parts = line.split(/\s+/);
-          var best = parts[1];
-          engineBusy = false;
-          stockfishEngine.onmessage = prev;
-          resolve(best);
+          try {
+            var parts = line.split(/\s+/);
+            var best = parts[1];
+            // restore default handler
+            try { stockfishEngine.onmessage = engineDefaultHandler; } catch(e) { console.warn('restore handler failed', e); }
+            engineBusy = false;
+            resolve(best);
+          } catch (err) {
+            try { stockfishEngine.onmessage = engineDefaultHandler; } catch(e) {}
+            engineBusy = false;
+            reject(err);
+          }
         }
       };
 
-      // set temporary handler
-      stockfishEngine.onmessage = capture;
-
+      // set capture as onmessage
       try {
+        stockfishEngine.onmessage = capture;
         stockfishEngine.postMessage('position fen ' + fen);
         stockfishEngine.postMessage('go movetime ' + parseInt(movetimeMs,10));
       } catch (e) {
+        // restore handler & reset busy
+        try { stockfishEngine.onmessage = engineDefaultHandler; } catch(ignore) {}
         engineBusy = false;
-        stockfishEngine.onmessage = prev;
         return reject(e);
       }
 
-      setTimeout(function() {
+      // safety timeout (ensure we restore if SF misbehaves)
+      var to = setTimeout(function() {
         if (engineBusy) {
+          try { stockfishEngine.onmessage = engineDefaultHandler; } catch(e) {}
           engineBusy = false;
-          stockfishEngine.onmessage = prev;
           reject('timeout');
         }
       }, Math.max(8000, movetimeMs + 4000));
     });
   }
 
-  // ------------- minimax fallback (unchanged) --------------
+  /* ============================
+     minimax fallback (kept)
+     ============================ */
   var weights = { p:100,n:280,b:320,r:479,q:929,k:60000,k_e:60000 };
   var pst_w = {
     p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
@@ -282,9 +308,9 @@
     return minimax(game, depth, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, true, currSum, color)[0];
   }
 
-  // -------------------------
-  // UI init
-  // -------------------------
+  /* ============================
+     UI init (after resolving pieces)
+     ============================ */
   (async function init() {
     try { await resolveAllPieces(); } catch(e){ console.error('resolve pieces failed', e); }
     initStockfish();
@@ -297,11 +323,23 @@
     }
 
     var config = {
-      draggable:true, position:'start', pieceTheme:pieceTheme,
-      moveSpeed:250, snapbackSpeed:200, snapSpeed:100,
+      draggable:true,
+      position:'start',
+      pieceTheme:pieceTheme,
+      moveSpeed:250,
+      snapbackSpeed:200,
+      snapSpeed:100,
       onDragStart: function(source, piece) {
-        if (game.game_over()) return false;
-        if ((game.turn()==='w' && piece.search(/^b/)!==-1) || (game.turn()==='b' && piece.search(/^w/)!==-1)) return false;
+        // SAFETY: piece may be undefined in some edge cases — guard to avoid exceptions
+        try {
+          if (game.game_over()) return false;
+          if (!piece) return false; // no piece element -> block drag
+          // piece format usually 'wP' or 'bN'
+          if ((game.turn()==='w' && piece.search(/^b/)!==-1) || (game.turn()==='b' && piece.search(/^w/)!==-1)) return false;
+        } catch (e) {
+          console.warn('onDragStart guard triggered', e);
+          return false;
+        }
       },
       onDrop: function(source, target) {
         var move = game.move({from:source, to:target, promotion:'q'});
@@ -315,9 +353,9 @@
     setTimeout(function(){ $('#myBoard .chessboard-js-piece').css('transition','top 0.25s, left 0.25s'); }, 1000);
   })();
 
-  // -------------------------
-  // sounds/effects/move logic (with robust SF handling)
-  // -------------------------
+  /* ============================
+     Sounds & move logic (robust)
+     ============================ */
   function playSound(type) {
     var el=null;
     switch(type){
@@ -369,33 +407,24 @@
           console.log('Stockfish answered bestmove:', best);
 
           if (best && best !== '(none)') {
-            // parse UCI move
             var from = best.slice(0,2);
             var to = best.slice(2,4);
             var promotion = (best.length > 4) ? best[4] : null;
 
-            // Validate against legal moves (verbose)
+            // Validate against legal moves
             var legals = game.moves({ verbose: true });
-            console.log('Legal moves count for validation:', legals.length);
             var matched = null;
             for (var i = 0; i < legals.length; i++) {
               var m = legals[i];
               if (m.from === from && m.to === to) {
-                // if promotion present, check it
                 if (promotion) {
-                  // some UCI promotions are lowercase q,r,b,n
                   if (m.promotion && m.promotion === promotion.toLowerCase()) { matched = m; break; }
-                  // if move object doesn't have promotion but UCI has, skip
-                } else {
-                  matched = m; break;
-                }
+                } else { matched = m; break; }
               }
             }
 
             if (matched) {
-              // matched legal move -> apply using game.move with verbose object's SAN or from/to
               console.log('Applying SF move (validated):', matched);
-              // game.move accepts verbose object.san or from/to object; we use from/to to preserve promotion option
               var botMove = game.move({ from: matched.from, to: matched.to, promotion: matched.promotion || 'q' });
               if (botMove) {
                 playMoveEffectAndSound(botMove);
@@ -418,7 +447,7 @@
         }
       }
 
-      // fallback to minimax if SF not used or failed
+      // fallback minimax
       if (!game.game_over() && game.turn() === 'b') {
         var botMove = getBestMoveMinimax(game, 'b', globalSum);
         if (botMove) {
@@ -435,9 +464,9 @@
     }, 350);
   }
 
-  // -------------------------
-  // click-to-move handlers (unchanged)
-  // -------------------------
+  /* ============================
+     Click-to-move handlers (unchanged)
+     ============================ */
   var selectedSquare = null;
   var legalTargets = [];
 
