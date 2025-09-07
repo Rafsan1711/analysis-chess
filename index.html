@@ -1,24 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Chess Bot Minimal + Drag + Click + Smooth Move + Sound + Effect</title>
+    <title>Chess Bot Minimal + Drag + Click + Smooth Move + Sound + Effect + Stockfish</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
     <style>
         body {
             background: #fafafa;
-            height: 1920px;
-            width: 1920px;
         }
         .board-container {
-            max-width: 1920px;
+            max-width: 420px;
             margin: 60px auto 0 auto;
-            height: 1920px;
-            width: 1920px;
         }
         #myBoard {
-           height: 1920px;
-            width: 1920px;
+            width: 100%;
             min-width: 320px;
             min-height: 320px;
         }
@@ -55,11 +50,20 @@
     <audio id="checkSound" src="sounds/check.mp3"></audio>
     <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
 
+    <!-- jQuery + Chessboard.js + Stockfish (WASM wrapper) -->
     <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
+
+    <!-- Stockfish: using wasm wrapper (CDN). If you prefer another variant, replace this tag -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.wasm.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <!-- Your Chess logic (local) -->
     <script src="js/chess.js"></script>
+
     <script>
-    // ===== Candidate piece filenames (we will probe these and pick first that loads) =====
+    // =========================
+    // piece resolve / fallback
+    // =========================
     var pieceCandidates = {
       'wK': ['pieces/wK.svg', 'pieces/wKing.svg', 'pieces/WK.svg'],
       'wQ': ['pieces/wQ.svg', 'pieces/wQueen.svg', 'pieces/WQ.svg'],
@@ -71,15 +75,11 @@
       'bQ': ['pieces/bQ.svg', 'pieces/bQueen.svg', 'pieces/BQ.svg'],
       'bR': ['pieces/bR.svg', 'pieces/bRook.svg', 'pieces/BR.svg'],
       'bB': ['pieces/bB.svg', 'pieces/bBishop.svg', 'pieces/BB.svg'],
-      // NOTE: knights often have inconsistent filenames on some assets -> include many fallbacks
       'bN': ['pieces/bN.svg', 'pieces/bKnight.svg', 'pieces/BN.svg', 'pieces/bn.svg', 'pieces/black-knight.svg'],
       'bP': ['pieces/bP.svg', 'pieces/bPawn.svg', 'pieces/BP.svg']
     };
-
-    // This will hold the resolved working URL for each piece (after probing)
     var pieceImgResolved = {};
 
-    // Helper to load an image and return a Promise
     function loadImage(url) {
       return new Promise(function(resolve, reject) {
         var img = new Image();
@@ -88,8 +88,6 @@
         img.src = url;
       });
     }
-
-    // Resolve candidates for a single piece: try each candidate sequentially
     async function resolvePiece(pieceKey, candidates) {
       for (var i = 0; i < candidates.length; i++) {
         try {
@@ -97,16 +95,12 @@
           console.log('Loaded piece', pieceKey, '->', candidates[i]);
           return candidates[i];
         } catch (e) {
-          // failed to load this candidate, try next
-          // console.warn('Failed to load', candidates[i]);
+          // try next
         }
       }
-      // none worked -> return null (caller will fallback)
       console.warn('No image found for', pieceKey, 'tried:', candidates);
       return null;
     }
-
-    // Resolve all pieces; returns a Promise that resolves when done
     async function resolveAllPieces() {
       var keys = Object.keys(pieceCandidates);
       for (var i = 0; i < keys.length; i++) {
@@ -114,32 +108,146 @@
         var resolved = await resolvePiece(k, pieceCandidates[k]);
         pieceImgResolved[k] = resolved;
       }
-      // if any essential piece not found, try fallback strategies:
-      // e.g., if bN not found, try to use wN (mirrored style) or a generic placeholder
+      // fallback knights or any missing to some available image
       if (!pieceImgResolved['bN']) {
         if (pieceImgResolved['wN']) {
-          console.warn('Falling back: using white knight image for bN');
           pieceImgResolved['bN'] = pieceImgResolved['wN'];
         } else {
-          console.warn('No knight images found at all; using first available image as placeholder.');
-          // pick any available image
           for (var p in pieceImgResolved) {
             if (pieceImgResolved[p]) { pieceImgResolved['bN'] = pieceImgResolved[p]; break; }
           }
         }
       }
-      // ensure all keys have SOME value (if still null, pick any valid one)
-      for (var k2 in pieceImgResolved) {
-        if (!pieceImgResolved[k2]) {
-          for (var p2 in pieceImgResolved) {
-            if (pieceImgResolved[p2]) { pieceImgResolved[k2] = pieceImgResolved[p2]; break; }
-          }
-        }
-      }
+      var defaultAny = null;
+      for (var k in pieceImgResolved) { if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; } }
+      for (var kk in pieceImgResolved) { if (!pieceImgResolved[kk]) pieceImgResolved[kk] = defaultAny; }
+      console.log('Resolved piece images:', pieceImgResolved);
       return pieceImgResolved;
     }
 
-    // ===== Chess AI Logic (unchanged) =====
+    // =========================
+    // Chess AI / engine setup
+    // =========================
+    var board = null;
+    var game = new Chess();
+    var globalSum = 0; // your evaluation state (kept)
+    var aiMode = 'stockfish'; // 'stockfish' or 'minimax'
+    var stockfishEngine = null;
+    var engineReady = false;
+    var engineBusy = false; // only one query at a time in this simple implementation
+    var stockfishMovetime = 200; // ms for Stockfish calculation (adjust for difficulty)
+
+    // Initialize Stockfish (try several factory names to be robust)
+    function initStockfish() {
+      try {
+        // If STOCKFISH global factory exists (from stockfish.wasm.js), call it:
+        if (typeof STOCKFISH === 'function') {
+          stockfishEngine = STOCKFISH();
+        } else if (typeof stockfish === 'function') {
+          stockfishEngine = stockfish();
+        } else if (typeof Stockfish === 'function') {
+          stockfishEngine = Stockfish();
+        } else if (typeof Worker !== 'undefined') {
+          // Fallback: try to spawn worker from common CDN (rare path, but okay)
+          // NOTE: This fallback tries to load stockfish.js as worker; if blocked by CORS, it won't work.
+          stockfishEngine = new Worker('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');
+        }
+      } catch (e) {
+        console.error('Stockfish init error:', e);
+        stockfishEngine = null;
+      }
+
+      if (!stockfishEngine) {
+        console.warn('Stockfish engine not available — will use minimax fallback.');
+        engineReady = false;
+        return;
+      }
+
+      // engine message handler: general logger + uci handshake
+      stockfishEngine.onmessage = function(event) {
+        var line = (event.data || event).toString();
+        console.log('stockfish:', line);
+        if (line.indexOf('uciok') !== -1 || line.indexOf('readyok') !== -1) {
+          engineReady = true;
+        }
+      };
+
+      // start handshake
+      try {
+        stockfishEngine.postMessage('uci');
+        // optional: set threads, hash size, etc.
+        stockfishEngine.postMessage('setoption name Threads value 2');
+        stockfishEngine.postMessage('setoption name Hash value 64');
+        // also request ready
+        stockfishEngine.postMessage('isready');
+      } catch (e) {
+        console.error('Stockfish postMessage failed:', e);
+      }
+    }
+
+    // Query stockfish for best move for a fen; returns Promise that resolves to uci move like "e2e4"
+    function stockfishBestMove(fen, movetimeMs) {
+      return new Promise(function(resolve, reject) {
+        if (!stockfishEngine || !engineReady) {
+          reject('engine not ready');
+          return;
+        }
+        if (engineBusy) {
+          reject('engine busy');
+          return;
+        }
+        engineBusy = true;
+
+        var handle = function(event) {
+          var line = (event.data || event).toString().trim();
+          // console.log('SF:', line);
+          if (line.length === 0) return;
+          // bestmove <move> [ponder <move>]
+          if (line.indexOf('bestmove') === 0) {
+            try {
+              var parts = line.split(/\s+/);
+              var best = parts[1];
+              engineBusy = false;
+              // detach this handler (set onmessage back to logger)
+              stockfishEngine.onmessage = function(ev) {
+                var ln = (ev.data || ev).toString();
+                console.log('stockfish:', ln);
+              };
+              resolve(best);
+            } catch (err) {
+              engineBusy = false;
+              reject(err);
+            }
+          }
+        };
+
+        // temporarily override onmessage to capture bestmove
+        stockfishEngine.onmessage = handle;
+
+        // send position and go command
+        try {
+          stockfishEngine.postMessage('position fen ' + fen);
+          stockfishEngine.postMessage('go movetime ' + parseInt(movetimeMs, 10));
+        } catch (e) {
+          engineBusy = false;
+          // restore onmessage logger
+          stockfishEngine.onmessage = function(ev) { console.log('stockfish:', (ev.data||ev).toString()); };
+          reject(e);
+        }
+        // safety timeout: if SF doesn't respond in reasonable time, reject
+        setTimeout(function() {
+          if (engineBusy) {
+            engineBusy = false;
+            stockfishEngine.onmessage = function(ev) { console.log('stockfish:', (ev.data||ev).toString()); };
+            reject('timeout');
+          }
+        }, Math.max(5000, movetimeMs + 2000));
+      });
+    }
+
+    // =========================
+    // existing AI (minimax) kept as fallback (unchanged)
+    // =========================
     var weights = { p: 100, n: 280, b: 320, r: 479, q: 929, k: 60000, k_e: 60000 };
     var pst_w = {
       p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
@@ -161,31 +269,6 @@
     };
     var pstOpponent = { w: pst_b, b: pst_w };
     var pstSelf = { w: pst_w, b: pst_b };
-
-    var board = null;
-    var game = new Chess();
-    var globalSum = 0; // from black's perspective
-
-    function playSound(type) {
-      var el = null;
-      switch(type) {
-        case "move": el = document.getElementById("moveSound"); break;
-        case "capture": el = document.getElementById("captureSound"); break;
-        case "promote": el = document.getElementById("promoteSound"); break;
-        case "castling": el = document.getElementById("castlingSound"); break;
-        case "incorrect": el = document.getElementById("incorrectMoveSound"); break;
-        case "check": el = document.getElementById("checkSound"); break;
-        case "checkmate": el = document.getElementById("checkmateSound"); break;
-      }
-      if (el) { el.currentTime = 0; el.play().catch(()=>{}); }
-    }
-
-    // Effect helper
-    function boardMoveEffect(square) {
-      var $sq = $('#myBoard .square-' + square);
-      $sq.addClass('move-effect');
-      setTimeout(function() { $sq.removeClass('move-effect'); }, 400);
-    }
 
     function evaluateBoard(game, move, prevSum, color) {
       if (game.in_checkmate()) {
@@ -251,35 +334,36 @@
       return isMaximizingPlayer ? [bestMove, maxValue] : [bestMove, minValue];
     }
 
-    function getBestMove(game, color, currSum) {
+    function getBestMoveMinimax(game, color, currSum) {
       var depth = 2;
       var [bestMove, ] = minimax(game, depth, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, true, currSum, color);
       return bestMove;
     }
 
-    // ===== Initialize board AFTER resolving piece images =====
+    // =========================
+    // UI config & board init
+    // =========================
     (async function init() {
+      // resolve piece images first
       try {
         await resolveAllPieces();
       } catch (e) {
-        console.error('Error resolving piece images:', e);
+        console.error('Error resolving pieces:', e);
       }
 
-      // If something very strange happened and a piece url is undefined, use a safe fallback
+      // stockfish init
+      initStockfish();
+
+      // ensure there's at least a fallback image
       var defaultAny = null;
       for (var k in pieceImgResolved) { if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; } }
       for (var kk in pieceImgResolved) { if (!pieceImgResolved[kk]) pieceImgResolved[kk] = defaultAny; }
 
-      // Build a simple pieceTheme function that returns the resolved map
       function pieceTheme(piece) {
-        // piece is like 'wN' or 'bK'
         if (pieceImgResolved && pieceImgResolved[piece]) return pieceImgResolved[piece];
-        // fallback
-        console.warn('No resolved image for', piece, 'using a fallback.');
         return defaultAny;
       }
 
-      // Now create the board config (kept same as before except pieceTheme now uses resolved map)
       var config = {
         draggable: true,
         position: 'start',
@@ -288,100 +372,130 @@
         snapbackSpeed: 200,
         snapSpeed: 100,
         onDragStart: function(source, piece) {
-          // Don't allow drag if game is over or not your piece
           if (game.game_over()) return false;
           if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
               (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
         },
         onDrop: function(source, target) {
-          // Try to move, if illegal play incorrect sound
           var move = game.move({ from: source, to: target, promotion: 'q' });
           if (move === null) {
             playSound("incorrect");
             return 'snapback';
           }
-          // Indicate this came from a drag so we don't immediately re-set board.position (avoid double animation)
           doMoveLogic(move, source, target, true);
           return;
         },
         onSnapEnd: function() {
-          // ONLY update the board here after a drag-based move finished its internal animation.
           board.position(game.fen());
         }
       };
       board = Chessboard('myBoard', config);
 
-      // Fix: make Chessboard.js piece movement always smooth (keeps the CSS transition)
       setTimeout(function() {
         $('#myBoard .chessboard-js-piece').css('transition', 'top 0.25s, left 0.25s');
       }, 1000);
     })();
 
-    // ===== Piece Move Logic (drag+click) + Sound + Effects (unchanged) =====
+    // =========================
+    // Sounds, effects, move logic
+    // =========================
+    function playSound(type) {
+      var el = null;
+      switch(type) {
+        case "move": el = document.getElementById("moveSound"); break;
+        case "capture": el = document.getElementById("captureSound"); break;
+        case "promote": el = document.getElementById("promoteSound"); break;
+        case "castling": el = document.getElementById("castlingSound"); break;
+        case "incorrect": el = document.getElementById("incorrectMoveSound"); break;
+        case "check": el = document.getElementById("checkSound"); break;
+        case "checkmate": el = document.getElementById("checkmateSound"); break;
+      }
+      if (el) { el.currentTime = 0; el.play().catch(()=>{}); }
+    }
+
+    function boardMoveEffect(square) {
+      var $sq = $('#myBoard .square-' + square);
+      $sq.addClass('move-effect');
+      setTimeout(function() { $sq.removeClass('move-effect'); }, 400);
+    }
+
+    function playMoveEffectAndSound(move) {
+      if (move.flags.includes('k') || move.flags.includes('q')) playSound("castling");
+      else if (move.flags.includes('p')) playSound("promote");
+      else if (move.flags.includes('c') || move.flags.includes('e')) playSound("capture");
+      else playSound("move");
+      if (game.in_checkmate()) playSound("checkmate");
+      else if (game.in_check()) playSound("check");
+    }
+
+    // doMoveLogic: after player's move we compute bot move (stockfish or minimax fallback)
     function doMoveLogic(move, source, target, isDrag) {
       playMoveEffectAndSound(move);
       boardMoveEffect(source);
       boardMoveEffect(target);
       globalSum = evaluateBoard(game, move, globalSum, 'b');
 
-      // For drag-based moves we MUST NOT call board.position immediately (onSnapEnd will do it once)
       if (!isDrag) {
-        // click-based move or programmatic move -> update board now
         board.position(game.fen());
       }
 
       clearHighlights();
       selectedSquare = null;
 
-      // Bot move (programmatic). For user-drag move, we still wait and then let bot move.
-      setTimeout(function() {
+      // Bot move: decide engine
+      setTimeout(async function() {
+        if (game.game_over() || game.turn() !== 'b') return;
+
+        // prefer Stockfish if aiMode is stockfish and engineReady
+        if (aiMode === 'stockfish' && stockfishEngine && engineReady) {
+          try {
+            var fen = game.fen();
+            // ask stockfish
+            var best = await stockfishBestMove(fen, stockfishMovetime).catch(function(e){ return null; });
+            if (best) {
+              // best is like "e7e5" or "e7e8q"
+              var from = best.slice(0,2);
+              var to = best.slice(2,4);
+              var promotion = (best.length > 4) ? best[4] : 'q';
+              var botMove = game.move({ from: from, to: to, promotion: promotion });
+              if (botMove) {
+                playMoveEffectAndSound(botMove);
+                boardMoveEffect(botMove.from);
+                boardMoveEffect(botMove.to);
+                globalSum = evaluateBoard(game, botMove, globalSum, 'b');
+                board.position(game.fen());
+                return;
+              }
+            }
+            // if stockfish returned null or move failed -> fallback to minimax below
+          } catch (err) {
+            console.warn('Stockfish failed or timed out, falling back to minimax', err);
+          }
+        }
+
+        // fallback: minimax (original)
         if (!game.game_over() && game.turn() === 'b') {
-          var botMove = getBestMove(game, 'b', globalSum);
+          var botMove = getBestMoveMinimax(game, 'b', globalSum);
           if (botMove) {
             game.move(botMove);
             playMoveEffectAndSound(botMove);
             boardMoveEffect(botMove.from);
             boardMoveEffect(botMove.to);
             globalSum = evaluateBoard(game, botMove, globalSum, 'b');
-            // programmatic bot move -> update board immediately (no onSnapEnd for programmatic)
             board.position(game.fen());
           }
         }
       }, 350);
     }
 
-    function playMoveEffectAndSound(move) {
-      // Castling
-      if (move.flags.includes('k') || move.flags.includes('q')) {
-        playSound("castling");
-      }
-      // Promotion
-      else if (move.flags.includes('p')) {
-        playSound("promote");
-      }
-      // Capture
-      else if (move.flags.includes('c') || move.flags.includes('e')) {
-        playSound("capture");
-      }
-      // Normal
-      else {
-        playSound("move");
-      }
-      // Check/Checkmate
-      if (game.in_checkmate()) {
-        playSound("checkmate");
-      } else if (game.in_check()) {
-        playSound("check");
-      }
-    }
-
-    // ===== Click-to-move implementation (like chess.com/lichess) =====
+    // =========================
+    // Click-to-move (unchanged)
+    // =========================
     var selectedSquare = null;
     var legalTargets = [];
 
     function clearHighlights() {
-      $('#myBoard .square-55d63').removeClass('highlight-click');
-      $('#myBoard .square-55d63').removeClass('highlight-target');
+      $('#myBoard .square-55d63').removeClass('highlight-click highlight-target');
     }
 
     function highlightSquares(squares, highlightClass) {
@@ -390,11 +504,9 @@
       });
     }
 
-    // Click logic: select, show targets, click target to move
     $('#myBoard').on('click', '.square-55d63', function() {
       var square = $(this).attr('data-square');
       if (game.game_over()) return;
-      // If no selection: select your own piece
       if (!selectedSquare) {
         var piece = game.get(square);
         if (!piece || piece.color !== game.turn()) return;
@@ -405,14 +517,12 @@
         legalTargets = moves.map(function(move) { return move.to; });
         highlightSquares(legalTargets, 'highlight-target');
       } else {
-        // If clicked same square, deselect
         if (square === selectedSquare) {
           selectedSquare = null;
           legalTargets = [];
           clearHighlights();
           return;
         }
-        // If clicked target square, try move
         if (legalTargets.includes(square)) {
           var move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
           if (move === null) {
@@ -426,7 +536,6 @@
           doMoveLogic(move, selectedSquare, square, false);
           return;
         }
-        // If clicked another own piece, switch selection
         var piece2 = game.get(square);
         if (piece2 && piece2.color === game.turn()) {
           selectedSquare = square;
@@ -437,13 +546,12 @@
           highlightSquares(legalTargets, 'highlight-target');
           return;
         }
-        // Else, deselect
         selectedSquare = null;
         legalTargets = [];
         clearHighlights();
       }
     });
-    // Deselect on outside click
+
     $(document).on('click', function(e){
       if ($(e.target).closest('#myBoard').length === 0) {
         clearHighlights();
@@ -451,7 +559,7 @@
         legalTargets = [];
       }
     });
-    // If drag starts, clear highlight
+
     $('#myBoard').on('mousedown', '.square-55d63', function() {
       clearHighlights();
       selectedSquare = null;
@@ -460,4 +568,4 @@
 
     </script>
 </body>
-    </html>
+</html>
