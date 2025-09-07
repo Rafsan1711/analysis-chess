@@ -1,522 +1,463 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Chess Bot + Stockfish (Adaptive, strong but efficient)</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
-    <style>
-        body { background: #fafafa; }
-        .board-container { max-width: 420px; margin: 60px auto 0 auto; }
-        #myBoard { width: 100%; min-width: 320px; min-height: 320px; }
-        .highlight-click { box-shadow: 0 0 8px 4px orange inset; }
-        .highlight-target { box-shadow: 0 0 4px 2px green inset; }
-        .move-effect { animation: boardMoveEffect 0.4s; }
-        @keyframes boardMoveEffect { 0% { box-shadow: 0 0 10px 4px #33dd33 inset; } 100% { box-shadow: none; } }
-        .chessboard-js-piece { transition: top 0.25s, left 0.25s; z-index: 10; }
-        /* small status HUD */
-        #engineStatus { text-align:center; font-size:13px; color:#444; margin-top:6px; }
-    </style>
+  <meta charset="utf-8" />
+  <title>Chess Bot + Stockfish (Blob Worker fallback)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
+  <style>
+    body { background:#fafafa; font-family: system-ui, Arial, sans-serif; }
+    .board-container { max-width:420px; margin:40px auto; text-align:center; }
+    #myBoard { width:100%; min-width:320px; min-height:320px; margin: 0 auto; }
+    .highlight-click { box-shadow:0 0 8px 4px orange inset; }
+    .highlight-target { box-shadow:0 0 4px 2px green inset; }
+    .move-effect { animation: boardMoveEffect 0.4s; }
+    @keyframes boardMoveEffect { 0% { box-shadow:0 0 10px 4px #33dd33 inset;} 100% { box-shadow:none; } }
+    .chessboard-js-piece { transition: top 0.25s, left 0.25s; z-index: 10; }
+    #engineStatus { font-size:13px; color:#333; margin-top:8px; }
+  </style>
 </head>
 <body>
-    <div class="board-container">
-        <div id="myBoard"></div>
-        <div id="engineStatus">Engine: initializing...</div>
-    </div>
+  <div class="board-container">
+    <div id="myBoard"></div>
+    <div id="engineStatus">Engine: initializing...</div>
+  </div>
 
-    <!-- Sound Effects -->
-    <audio id="moveSound" src="sounds/move.mp3"></audio>
-    <audio id="captureSound" src="sounds/capture.mp3"></audio>
-    <audio id="promoteSound" src="sounds/promote.mp3"></audio>
-    <audio id="castlingSound" src="sounds/castling.mp3"></audio>
-    <audio id="incorrectMoveSound" src="sounds/incorrect-move.mp3"></audio>
-    <audio id="checkSound" src="sounds/check.mp3"></audio>
-    <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
+  <!-- Sounds -->
+  <audio id="moveSound" src="sounds/move.mp3"></audio>
+  <audio id="captureSound" src="sounds/capture.mp3"></audio>
+  <audio id="promoteSound" src="sounds/promote.mp3"></audio>
+  <audio id="castlingSound" src="sounds/castling.mp3"></audio>
+  <audio id="incorrectMoveSound" src="sounds/incorrect-move.mp3"></audio>
+  <audio id="checkSound" src="sounds/check.mp3"></audio>
+  <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
 
-    <!-- libs -->
-    <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
+  <!-- libs -->
+  <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
 
-    <!-- Stockfish wasm wrapper (CDN) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.wasm.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Don't include stockfish.wasm.js here to avoid wasm-relative fetch 404 issues.
+       We'll load stockfish.js into a Blob worker dynamically. -->
 
-    <!-- local chess lib -->
-    <script src="js/chess.js"></script>
+  <!-- local chess logic -->
+  <script src="js/chess.js"></script>
 
-    <script>
-    // -------------------------
-    // piece fallback/resolver
-    // -------------------------
-    var pieceCandidates = {
-      'wK': ['pieces/wK.svg','pieces/wKing.svg','pieces/WK.svg'],
-      'wQ': ['pieces/wQ.svg','pieces/wQueen.svg','pieces/WQ.svg'],
-      'wR': ['pieces/wR.svg','pieces/wRook.svg','pieces/WR.svg'],
-      'wB': ['pieces/wB.svg','pieces/wBishop.svg','pieces/WB.svg'],
-      'wN': ['pieces/wN.svg','pieces/wKnight.svg','pieces/WN.svg','pieces/wn.svg'],
-      'wP': ['pieces/wP.svg','pieces/wPawn.svg','pieces/WP.svg'],
-      'bK': ['pieces/bK.svg','pieces/bKing.svg','pieces/BK.svg'],
-      'bQ': ['pieces/bQ.svg','pieces/bQueen.svg','pieces/BQ.svg'],
-      'bR': ['pieces/bR.svg','pieces/bRook.svg','pieces/BR.svg'],
-      'bB': ['pieces/bB.svg','pieces/bBishop.svg','pieces/BB.svg'],
-      'bN': ['pieces/bN.svg','pieces/bKnight.svg','pieces/BN.svg','pieces/bn.svg','pieces/black-knight.svg'],
-      'bP': ['pieces/bP.svg','pieces/bPawn.svg','pieces/BP.svg']
-    };
-    var pieceImgResolved = {};
+  <script>
+  /* ============================
+     Piece resolver (same as before)
+     ============================ */
+  var pieceCandidates = {
+    'wK':['pieces/wK.svg','pieces/wKing.svg','pieces/WK.svg'],
+    'wQ':['pieces/wQ.svg','pieces/wQueen.svg','pieces/WQ.svg'],
+    'wR':['pieces/wR.svg','pieces/wRook.svg','pieces/WR.svg'],
+    'wB':['pieces/wB.svg','pieces/wBishop.svg','pieces/WB.svg'],
+    'wN':['pieces/wN.svg','pieces/wKnight.svg','pieces/WN.svg','pieces/wn.svg'],
+    'wP':['pieces/wP.svg','pieces/wPawn.svg','pieces/WP.svg'],
+    'bK':['pieces/bK.svg','pieces/bKing.svg','pieces/BK.svg'],
+    'bQ':['pieces/bQ.svg','pieces/bQueen.svg','pieces/BQ.svg'],
+    'bR':['pieces/bR.svg','pieces/bRook.svg','pieces/BR.svg'],
+    'bB':['pieces/bB.svg','pieces/bBishop.svg','pieces/BB.svg'],
+    'bN':['pieces/bN.svg','pieces/bKnight.svg','pieces/BN.svg','pieces/bn.svg','pieces/black-knight.svg'],
+    'bP':['pieces/bP.svg','pieces/bPawn.svg','pieces/BP.svg']
+  };
+  var pieceImgResolved = {};
 
-    function loadImage(url) {
-      return new Promise(function(resolve, reject) {
-        var img = new Image();
-        img.onload = function() { resolve(url); };
-        img.onerror = function() { reject(url); };
-        img.src = url;
-      });
+  function loadImage(url){ return new Promise(function(resolve,reject){ var img=new Image(); img.onload=function(){resolve(url)}; img.onerror=function(){reject(url)}; img.src=url; }); }
+  async function resolvePiece(key, candidates){
+    for (var i=0;i<candidates.length;i++){
+      try{ var ok = await loadImage(candidates[i]); console.log('Loaded piece', key, '->', candidates[i]); return candidates[i]; }
+      catch(e){}
     }
+    console.warn('No image found for', key, candidates);
+    return null;
+  }
+  async function resolveAllPieces(){
+    var keys=Object.keys(pieceCandidates);
+    for (var i=0;i<keys.length;i++){ pieceImgResolved[keys[i]] = await resolvePiece(keys[i], pieceCandidates[keys[i]]); }
+    if (!pieceImgResolved['bN']) {
+      if (pieceImgResolved['wN']) pieceImgResolved['bN'] = pieceImgResolved['wN'];
+      else { for (var p in pieceImgResolved) if (pieceImgResolved[p]) { pieceImgResolved['bN'] = pieceImgResolved[p]; break; } }
+    }
+    var defaultAny=null; for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
+    for (var k2 in pieceImgResolved) if (!pieceImgResolved[k2]) pieceImgResolved[k2] = defaultAny;
+    console.log('Resolved pieces:', pieceImgResolved);
+    return pieceImgResolved;
+  }
 
-    async function resolvePiece(pieceKey, candidates) {
-      for (var i=0;i<candidates.length;i++) {
-        try {
-          var ok = await loadImage(candidates[i]);
-          console.log('Loaded piece', pieceKey, '->', candidates[i]);
-          return candidates[i];
-        } catch(e) {
-          // try next
-        }
-      }
-      console.warn('No image found for', pieceKey, 'tried:', candidates);
+  /* ============================
+     Engine (Blob worker) + adaptive options
+     ============================ */
+  var board = null;
+  var game = new Chess();
+  var globalSum = 0;
+  var aiMode = 'stockfish'; // or 'minimax'
+  var stockfishEngine = null;
+  var engineReady = false;
+  var engineBusy = false;
+  var stockfishMovetime = 800; // will be set adaptively
+  var engineOpts = {};
+
+  function computeEngineOptions(){
+    var hwc = navigator.hardwareConcurrency || 2;
+    var isMobile = /Mobi|Android/i.test(navigator.userAgent) || (window.innerWidth && window.innerWidth < 720);
+    var threads = isMobile ? 1 : Math.min(4, Math.max(1, Math.floor(hwc)));
+    var hash = isMobile ? 16 : 64;
+    var movetime = isMobile ? 350 : (hwc >= 8 ? 1200 : 800);
+    var skill = 20;
+    engineOpts = {threads:threads, hash:hash, movetime:movetime, skill:skill, isMobile:isMobile, hwc:hwc};
+    stockfishMovetime = movetime;
+    return engineOpts;
+  }
+
+  // Create a Blob worker that importScripts the stockfish.js from CDN (avoids new Worker(CDNurl) CORS error)
+  function createStockfishBlobWorker(cdnUrl) {
+    try {
+      var blobCode = "importScripts('" + cdnUrl + "');"; 
+      // stockfish.js worker script when imported will set up onmessage handler itself.
+      // We do not add anything else here — the imported script already behaves like a worker script.
+      var blob = new Blob([blobCode], {type: 'application/javascript'});
+      var blobURL = URL.createObjectURL(blob);
+      var w = new Worker(blobURL);
+      // revoke object URL after some time (optional)
+      setTimeout(function(){ URL.revokeObjectURL(blobURL); }, 5000);
+      return w;
+    } catch (e) {
+      console.error('createStockfishBlobWorker failed', e);
       return null;
     }
+  }
 
-    async function resolveAllPieces(){
-      var keys = Object.keys(pieceCandidates);
-      for (var i=0;i<keys.length;i++){
-        var k = keys[i];
-        pieceImgResolved[k] = await resolvePiece(k, pieceCandidates[k]);
+  function initStockfish() {
+    var opts = computeEngineOptions();
+    console.log('Engine options:', opts);
+    document.getElementById('engineStatus').innerText = 'Engine: loading...';
+
+    // Try to use STOCKFISH wrapper first (if present) — but likely not because we didn't include wasm wrapper.
+    try {
+      if (typeof STOCKFISH === 'function') {
+        // some builds expose a factory
+        stockfishEngine = STOCKFISH();
+      } else {
+        // Create a blob-based worker that imports the stockfish.js from CDN
+        var cdn = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
+        stockfishEngine = createStockfishBlobWorker(cdn);
       }
-      // fallback: if bN missing, use wN or any available
-      if (!pieceImgResolved['bN']) {
-        if (pieceImgResolved['wN']) pieceImgResolved['bN'] = pieceImgResolved['wN'];
-        else {
-          for (var p in pieceImgResolved){ if (pieceImgResolved[p]) { pieceImgResolved['bN'] = pieceImgResolved[p]; break; } }
+    } catch (e) {
+      console.warn('Stockfish init attempt failed:', e);
+      stockfishEngine = null;
+    }
+
+    if (!stockfishEngine) {
+      engineReady = false;
+      document.getElementById('engineStatus').innerText = 'Engine: unavailable (fallback to minimax)';
+      console.warn('Stockfish not available; using minimax fallback.');
+      return;
+    }
+
+    // attach message handler
+    stockfishEngine.onmessage = function(ev) {
+      var line = (ev.data || ev).toString();
+      console.log('stockfish:', line);
+      if (line.indexOf('uciok') !== -1 || line.indexOf('readyok') !== -1) {
+        engineReady = true;
+        document.getElementById('engineStatus').innerText = 'Engine: ready (Stockfish, skill ' + opts.skill + ', threads ' + opts.threads + ', hash ' + opts.hash + 'MB)';
+      }
+    };
+
+    // configure engine
+    try {
+      stockfishEngine.postMessage('uci');
+      stockfishEngine.postMessage('setoption name Threads value ' + opts.threads);
+      stockfishEngine.postMessage('setoption name Hash value ' + opts.hash);
+      // set strong skill if supported
+      stockfishEngine.postMessage('setoption name Skill Level value ' + opts.skill);
+      stockfishEngine.postMessage('setoption name UCI_LimitStrength value false');
+      stockfishEngine.postMessage('isready');
+    } catch (e) {
+      console.error('Error configuring stockfish:', e);
+    }
+  }
+
+  // Query stockfish for bestmove
+  function stockfishBestMove(fen, movetimeMs) {
+    return new Promise(function(resolve, reject) {
+      if (!stockfishEngine || !engineReady) return reject('engine not ready');
+      if (engineBusy) return reject('engine busy');
+      engineBusy = true;
+
+      // save existing handler
+      var prevHandler = stockfishEngine.onmessage;
+
+      var capture = function(ev) {
+        var line = (ev.data || ev).toString().trim();
+        if (!line) return;
+        // capture bestmove line
+        if (line.indexOf('bestmove') === 0) {
+          var parts = line.split(/\s+/);
+          var best = parts[1];
+          engineBusy = false;
+          // restore handler
+          stockfishEngine.onmessage = prevHandler;
+          resolve(best);
         }
-      }
-      var defaultAny = null;
-      for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
-      for (var k2 in pieceImgResolved) if (!pieceImgResolved[k2]) pieceImgResolved[k2] = defaultAny;
-      console.log('Resolved pieces:', pieceImgResolved);
-      return pieceImgResolved;
-    }
+      };
 
-    // -------------------------
-    // engine / adaptive options
-    // -------------------------
-    var board = null;
-    var game = new Chess();
-    var globalSum = 0;
-
-    var aiMode = 'stockfish'; // 'stockfish' or 'minimax'
-    var stockfishEngine = null;
-    var engineReady = false;
-    var engineBusy = false;
-    var stockfishMovetime = null; // computed adaptively later
-    var engineOptions = {}; // computed
-
-    function computeEngineOptions() {
-      var hwc = navigator.hardwareConcurrency || 2;
-      var isMobile = /Mobi|Android/i.test(navigator.userAgent) || (window.innerWidth && window.innerWidth < 720);
-      // Threads: keep low for mobile to avoid too many cores; allow more on desktop but cap to 4
-      var threads = isMobile ? 1 : Math.min(4, Math.max(1, Math.floor(hwc / 1)));
-      // Hash: memory in MB - smaller for mobile
-      var hash = isMobile ? 16 : 64;
-      // Movetime (ms): balance strength and CPU usage
-      var movetime;
-      if (isMobile) movetime = 350; // responsive on phones
-      else { // desktop
-        // prefer stronger on more cores but don't explode CPU
-        movetime = hwc >= 8 ? 1200 : 800;
-      }
-      // Skill Level: max (20)
-      var skill = 20;
-
-      engineOptions = { threads: threads, hash: hash, movetime: movetime, skill: skill, isMobile: isMobile, hwc: hwc };
-      stockfishMovetime = movetime;
-      return engineOptions;
-    }
-
-    // Initialize Stockfish robustly
-    function initStockfish() {
-      var opts = computeEngineOptions();
-      console.log('Engine options:', opts);
-      document.getElementById('engineStatus').innerText = 'Engine: loading...';
+      stockfishEngine.onmessage = capture;
 
       try {
-        if (typeof STOCKFISH === 'function') {
-          stockfishEngine = STOCKFISH(); // common wrapper from wasm build
-        } else if (typeof stockfish === 'function') {
-          stockfishEngine = stockfish();
-        } else if (typeof Stockfish === 'function') {
-          stockfishEngine = Stockfish();
-        } else if (typeof Worker !== 'undefined') {
-          // fallback: try to make worker from CDN (may fail due to CORS)
-          stockfishEngine = new Worker('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');
-        }
+        stockfishEngine.postMessage('position fen ' + fen);
+        stockfishEngine.postMessage('go movetime ' + parseInt(movetimeMs,10));
       } catch (e) {
-        console.error('Stockfish init error:', e);
-        stockfishEngine = null;
+        engineBusy = false;
+        stockfishEngine.onmessage = prevHandler;
+        return reject(e);
       }
 
-      if (!stockfishEngine) {
-        engineReady = false;
-        document.getElementById('engineStatus').innerText = 'Engine: unavailable (fallback to minimax)';
+      // safety timeout
+      setTimeout(function() {
+        if (engineBusy) {
+          engineBusy = false;
+          stockfishEngine.onmessage = prevHandler;
+          reject('timeout');
+        }
+      }, Math.max(8000, movetimeMs + 4000));
+    });
+  }
+
+  /* ============================
+     Old minimax kept as fallback
+     (identical to your previous code)
+     ============================ */
+  var weights = { p:100,n:280,b:320,r:479,q:929,k:60000,k_e:60000 };
+  var pst_w = { /* ... same PST arrays ... keep exact arrays from your code */ 
+    p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
+    n: [[-66,-53,-75,-75,-10,-55,-58,-70],[-3,-6,100,-36,4,62,-4,-14],[10,67,1,74,73,27,62,-2],[24,24,45,37,33,41,25,17],[-1,5,31,21,22,35,2,0],[-18,10,13,22,18,15,11,-14],[-23,-15,2,0,2,0,-23,-20],[-74,-23,-26,-24,-19,-35,-22,-69]],
+    b: [[-59,-78,-82,-76,-23,-107,-37,-50],[-11,20,35,-42,-39,31,2,-22],[-9,39,-32,41,52,-10,28,-14],[25,17,20,34,26,25,15,10],[13,10,17,23,17,16,0,7],[14,25,24,15,8,25,20,15],[19,20,11,6,7,6,20,16],[-7,2,-15,-12,-14,-15,-10,-10]],
+    r: [[35,29,33,4,37,33,56,50],[55,29,56,67,55,62,34,60],[19,35,28,33,45,27,25,15],[0,5,16,13,18,-4,-9,-6],[-28,-35,-16,-21,-13,-29,-46,-30],[-42,-28,-42,-25,-25,-35,-26,-46],[-53,-38,-31,-26,-29,-43,-44,-53],[-30,-24,-18,5,-2,-18,-31,-32]],
+    q: [[6,1,-8,-104,69,24,88,26],[14,32,60,-10,20,76,57,24],[-2,43,32,60,72,63,43,2],[1,-16,22,17,25,20,-13,-6],[-14,-15,-2,-5,-1,-10,-20,-22],[-30,-6,-13,-11,-16,-11,-16,-27],[-36,-18,0,-19,-15,-15,-21,-38],[-39,-30,-31,-13,-31,-36,-34,-42]],
+    k: [[4,54,47,-99,-99,60,83,-62],[-32,10,55,56,56,55,10,3],[-62,12,-57,44,-67,28,37,-31],[-55,50,11,-4,-19,13,0,-49],[-55,-43,-52,-28,-51,-47,-8,-50],[-47,-42,-43,-79,-64,-32,-29,-32],[-4,3,-14,-50,-57,-18,13,4],[17,30,-3,-14,6,-1,40,18]],
+    k_e: [[-50,-40,-30,-20,-20,-30,-40,-50],[-30,-20,-10,0,0,-10,-20,-30],[-30,-10,20,30,30,20,-10,-30],[-30,-10,30,40,40,30,-10,-30],[-30,-10,30,40,40,30,-10,-30],[-30,-10,20,30,30,20,-10,-30],[-30,-30,0,0,0,0,-30,-30],[-50,-30,-30,-30,-30,-30,-30,-50]]
+  };
+  var pst_b = { p: pst_w['p'].slice().reverse(), n: pst_w['n'].slice().reverse(), b: pst_w['b'].slice().reverse(), r: pst_w['r'].slice().reverse(), q: pst_w['q'].slice().reverse(), k: pst_w['k'].slice().reverse(), k_e: pst_w['k_e'].slice().reverse() };
+  var pstOpponent = { w: pst_b, b: pst_w };
+  var pstSelf = { w: pst_w, b: pst_b };
+
+  function evaluateBoard(game, move, prevSum, color) {
+    if (game.in_checkmate()) { if (move.color === color) return 1e10; else return -1e10; }
+    if (game.in_draw() || game.in_threefold_repetition() || game.in_stalemate()) return 0;
+    if (game.in_check()) { if (move.color === color) prevSum += 50; else prevSum -= 50; }
+    var from = [8 - parseInt(move.from[1]), move.from.charCodeAt(0) - 'a'.charCodeAt(0)];
+    var to = [8 - parseInt(move.to[1]), move.to.charCodeAt(0) - 'a'.charCodeAt(0)];
+    if (prevSum < -1500 && move.piece === 'k') move.piece = 'k_e';
+    if ('captured' in move) {
+      if (move.color === color) prevSum += weights[move.captured] + pstOpponent[move.color][move.captured][to[0]][to[1]];
+      else prevSum -= weights[move.captured] + pstSelf[move.color][move.captured][to[0]][to[1]];
+    }
+    if (move.flags && move.flags.includes('p')) {
+      move.promotion = 'q';
+      if (move.color === color) {
+        prevSum -= weights[move.piece] + pstSelf[move.color][move.piece][from[0]][from[1]];
+        prevSum += weights[move.promotion] + pstSelf[move.color][move.promotion][to[0]][to[1]];
+      } else {
+        prevSum += weights[move.piece] + pstSelf[move.color][move.piece][from[0]][from[1]];
+        prevSum -= weights[move.promotion] + pstSelf[move.color][move.promotion][to[0]][to[1]];
+      }
+    } else {
+      if (move.color !== color) {
+        prevSum += pstSelf[move.color][move.piece][from[0]][from[1]];
+        prevSum -= pstSelf[move.color][move.piece][to[0]][to[1]];
+      } else {
+        prevSum -= pstSelf[move.color][move.piece][from[0]][from[1]];
+        prevSum += pstSelf[move.color][move.piece][to[0]][to[1]];
+      }
+    }
+    return prevSum;
+  }
+
+  function minimax(game, depth, alpha, beta, isMax, sum, color) {
+    var children = game.ugly_moves({ verbose: true });
+    children.sort(function(){ return 0.5 - Math.random(); });
+    if (depth === 0 || children.length === 0) return [null, sum];
+    var maxV = Number.NEGATIVE_INFINITY, minV = Number.POSITIVE_INFINITY, best = null;
+    for (var i=0;i<children.length;i++){
+      var m = children[i];
+      var pm = game.ugly_move(m);
+      var newSum = evaluateBoard(game, pm, sum, color);
+      var [, childVal] = minimax(game, depth-1, alpha, beta, !isMax, newSum, color);
+      game.undo();
+      if (isMax) {
+        if (childVal > maxV) { maxV = childVal; best = pm; }
+        if (childVal > alpha) alpha = childVal;
+      } else {
+        if (childVal < minV) { minV = childVal; best = pm; }
+        if (childVal < beta) beta = childVal;
+      }
+      if (alpha >= beta) break;
+    }
+    return isMax ? [best, maxV] : [best, minV];
+  }
+  function getBestMoveMinimax(game, color, currSum) {
+    var depth = 2;
+    return minimax(game, depth, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, true, currSum, color)[0];
+  }
+
+  /* ============================
+     UI init after resolving pieces
+     ============================ */
+  (async function init() {
+    try { await resolveAllPieces(); } catch(e){ console.error('resolve pieces failed', e); }
+    initStockfish();
+
+    var defaultAny=null; for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
+
+    function pieceTheme(piece) {
+      if (pieceImgResolved && pieceImgResolved[piece]) return pieceImgResolved[piece];
+      return defaultAny;
+    }
+
+    var config = {
+      draggable:true, position:'start', pieceTheme:pieceTheme,
+      moveSpeed:250, snapbackSpeed:200, snapSpeed:100,
+      onDragStart: function(source, piece) {
+        if (game.game_over()) return false;
+        if ((game.turn()==='w' && piece.search(/^b/)!==-1) || (game.turn()==='b' && piece.search(/^w/)!==-1)) return false;
+      },
+      onDrop: function(source, target) {
+        var move = game.move({from:source, to:target, promotion:'q'});
+        if (move === null) { playSound('incorrect'); return 'snapback'; }
+        doMoveLogic(move, source, target, true);
+        return;
+      },
+      onSnapEnd: function() { board.position(game.fen()); }
+    };
+    board = Chessboard('myBoard', config);
+    setTimeout(function(){ $('#myBoard .chessboard-js-piece').css('transition','top 0.25s, left 0.25s'); }, 1000);
+  })();
+
+  /* ============================
+     Sounds + move logic (same behaviour)
+     ============================ */
+  function playSound(type) {
+    var el=null;
+    switch(type){
+      case 'move': el=document.getElementById('moveSound'); break;
+      case 'capture': el=document.getElementById('captureSound'); break;
+      case 'promote': el=document.getElementById('promoteSound'); break;
+      case 'castling': el=document.getElementById('castlingSound'); break;
+      case 'incorrect': el=document.getElementById('incorrectMoveSound'); break;
+      case 'check': el=document.getElementById('checkSound'); break;
+      case 'checkmate': el=document.getElementById('checkmateSound'); break;
+    }
+    if (el) { el.currentTime = 0; el.play().catch(()=>{}); }
+  }
+
+  function boardMoveEffect(square) {
+    var $sq = $('#myBoard .square-' + square);
+    $sq.addClass('move-effect');
+    setTimeout(function(){ $sq.removeClass('move-effect'); }, 400);
+  }
+
+  function playMoveEffectAndSound(move) {
+    if (move.flags.includes('k') || move.flags.includes('q')) playSound('castling');
+    else if (move.flags.includes('p')) playSound('promote');
+    else if (move.flags.includes('c') || move.flags.includes('e')) playSound('capture');
+    else playSound('move');
+    if (game.in_checkmate()) playSound('checkmate');
+    else if (game.in_check()) playSound('check');
+  }
+
+  function doMoveLogic(move, source, target, isDrag) {
+    playMoveEffectAndSound(move);
+    boardMoveEffect(source);
+    boardMoveEffect(target);
+    globalSum = evaluateBoard(game, move, globalSum, 'b');
+
+    if (!isDrag) board.position(game.fen());
+    clearHighlights();
+    selectedSquare = null;
+
+    setTimeout(async function(){
+      if (game.game_over() || game.turn() !== 'b') return;
+
+      if (aiMode === 'stockfish' && stockfishEngine && engineReady) {
+        try {
+          var fen = game.fen();
+          var best = await stockfishBestMove(fen, stockfishMovetime).catch(()=>null);
+          if (best) {
+            var from = best.slice(0,2), to = best.slice(2,4), promotion = (best.length>4 ? best[4] : 'q');
+            var botMove = game.move({ from: from, to: to, promotion: promotion });
+            if (botMove) {
+              playMoveEffectAndSound(botMove);
+              boardMoveEffect(botMove.from);
+              boardMoveEffect(botMove.to);
+              globalSum = evaluateBoard(game, botMove, globalSum, 'b');
+              board.position(game.fen());
+              return;
+            }
+          }
+        } catch(e){
+          console.warn('Stockfish error -> fallback minimax', e);
+        }
+      }
+
+      // fallback minimax
+      if (!game.game_over() && game.turn() === 'b') {
+        var botMove = getBestMoveMinimax(game, 'b', globalSum);
+        if (botMove) {
+          game.move(botMove);
+          playMoveEffectAndSound(botMove);
+          boardMoveEffect(botMove.from);
+          boardMoveEffect(botMove.to);
+          globalSum = evaluateBoard(game, botMove, globalSum, 'b');
+          board.position(game.fen());
+        }
+      }
+    }, 350);
+  }
+
+  /* ============================
+     Click-to-move handlers
+     ============================ */
+  var selectedSquare = null;
+  var legalTargets = [];
+
+  function clearHighlights() { $('#myBoard .square-55d63').removeClass('highlight-click highlight-target'); }
+  function highlightSquares(squares, cls){ squares.forEach(function(sq){ $('#myBoard .square-' + sq).addClass(cls); }); }
+
+  $('#myBoard').on('click', '.square-55d63', function(){
+    var square = $(this).attr('data-square');
+    if (game.game_over()) return;
+    if (!selectedSquare){
+      var piece = game.get(square);
+      if (!piece || piece.color !== game.turn()) return;
+      selectedSquare = square; clearHighlights();
+      $('#myBoard .square-' + square).addClass('highlight-click');
+      var moves = game.moves({ square: square, verbose: true });
+      legalTargets = moves.map(function(m){ return m.to; });
+      highlightSquares(legalTargets, 'highlight-target');
+    } else {
+      if (square === selectedSquare) { selectedSquare = null; legalTargets = []; clearHighlights(); return; }
+      if (legalTargets.includes(square)) {
+        var move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+        if (move === null) { playSound('incorrect'); clearHighlights(); selectedSquare=null; legalTargets=[]; board.position(game.fen()); return; }
+        doMoveLogic(move, selectedSquare, square, false);
         return;
       }
-
-      // default logger handler
-      function engineMessageHandler(event) {
-        var line = (event.data || event).toString();
-        console.log('stockfish:', line);
-        // listen for readyok
-        if (line.indexOf('readyok') !== -1) {
-          engineReady = true;
-          document.getElementById('engineStatus').innerText = 'Engine: ready (Stockfish, skill ' + opts.skill + ', threads ' + opts.threads + ', hash ' + opts.hash + 'MB)';
-        }
-        if (line.indexOf('uciok') !== -1) {
-          // ignore, continue
-        }
-      }
-
-      // attach handler (for both worker and wrapper)
-      stockfishEngine.onmessage = engineMessageHandler;
-
-      // handshake and set options, then isready
-      try {
-        stockfishEngine.postMessage('uci');
-        // set sensible options: Threads, Hash, Skill Level, Limit Strength off
-        stockfishEngine.postMessage('setoption name Threads value ' + opts.threads);
-        stockfishEngine.postMessage('setoption name Hash value ' + opts.hash);
-        // Skill Level sometimes present; we set to 20 (max)
-        stockfishEngine.postMessage('setoption name Skill Level value ' + opts.skill);
-        // Limit strength off (we want full strength)
-        stockfishEngine.postMessage('setoption name UCI_LimitStrength value false');
-        // some builds expose 'Use NNUE' or 'EvalFile'; leave these default
-        // now ask engine to get ready
-        stockfishEngine.postMessage('isready');
-      } catch (e) {
-        console.error('Failed to configure engine:', e);
-      }
-    }
-
-    // Query best move from stockfish with movetime; returns Promise resolving to UCI move string or rejects
-    function stockfishBestMove(fen, movetimeMs) {
-      return new Promise(function(resolve, reject) {
-        if (!stockfishEngine || !engineReady) return reject('engine not ready');
-        if (engineBusy) return reject('engine busy');
-        engineBusy = true;
-
-        // temporary handler to capture bestmove
-        var captureHandler = function(event) {
-          var line = (event.data || event).toString().trim();
-          if (!line) return;
-          // detect bestmove
-          if (line.indexOf('bestmove') === 0) {
-            var parts = line.split(/\s+/);
-            var best = parts[1];
-            engineBusy = false;
-            // restore default handler
-            stockfishEngine.onmessage = engineDefaultHandler;
-            resolve(best);
-          }
-          // could capture info lines optionally for UI
-        };
-
-        // save default handler to restore later
-        var engineDefaultHandler = stockfishEngine.onmessage;
-
-        // set our temporary listener
-        stockfishEngine.onmessage = captureHandler;
-
-        try {
-          stockfishEngine.postMessage('position fen ' + fen);
-          stockfishEngine.postMessage('go movetime ' + parseInt(movetimeMs,10));
-        } catch (e) {
-          engineBusy = false;
-          stockfishEngine.onmessage = engineDefaultHandler;
-          reject(e);
-        }
-
-        // safety timeout: restore after some time
-        setTimeout(function(){
-          if (engineBusy) {
-            engineBusy = false;
-            stockfishEngine.onmessage = engineDefaultHandler;
-            reject('timeout');
-          }
-        }, Math.max(8000, movetimeMs + 4000));
-      });
-    }
-
-    // -------------------------
-    // existing minimax fallback kept
-    // -------------------------
-    var weights = { p:100,n:280,b:320,r:479,q:929,k:60000,k_e:60000 };
-    var pst_w = {
-      p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
-      n: [[-66,-53,-75,-75,-10,-55,-58,-70],[-3,-6,100,-36,4,62,-4,-14],[10,67,1,74,73,27,62,-2],[24,24,45,37,33,41,25,17],[-1,5,31,21,22,35,2,0],[-18,10,13,22,18,15,11,-14],[-23,-15,2,0,2,0,-23,-20],[-74,-23,-26,-24,-19,-35,-22,-69]],
-      b: [[-59,-78,-82,-76,-23,-107,-37,-50],[-11,20,35,-42,-39,31,2,-22],[-9,39,-32,41,52,-10,28,-14],[25,17,20,34,26,25,15,10],[13,10,17,23,17,16,0,7],[14,25,24,15,8,25,20,15],[19,20,11,6,7,6,20,16],[-7,2,-15,-12,-14,-15,-10,-10]],
-      r: [[35,29,33,4,37,33,56,50],[55,29,56,67,55,62,34,60],[19,35,28,33,45,27,25,15],[0,5,16,13,18,-4,-9,-6],[-28,-35,-16,-21,-13,-29,-46,-30],[-42,-28,-42,-25,-25,-35,-26,-46],[-53,-38,-31,-26,-29,-43,-44,-53],[-30,-24,-18,5,-2,-18,-31,-32]],
-      q: [[6,1,-8,-104,69,24,88,26],[14,32,60,-10,20,76,57,24],[-2,43,32,60,72,63,43,2],[1,-16,22,17,25,20,-13,-6],[-14,-15,-2,-5,-1,-10,-20,-22],[-30,-6,-13,-11,-16,-11,-16,-27],[-36,-18,0,-19,-15,-15,-21,-38],[-39,-30,-31,-13,-31,-36,-34,-42]],
-      k: [[4,54,47,-99,-99,60,83,-62],[-32,10,55,56,56,55,10,3],[-62,12,-57,44,-67,28,37,-31],[-55,50,11,-4,-19,13,0,-49],[-55,-43,-52,-28,-51,-47,-8,-50],[-47,-42,-43,-79,-64,-32,-29,-32],[-4,3,-14,-50,-57,-18,13,4],[17,30,-3,-14,6,-1,40,18]],
-      k_e: [[-50,-40,-30,-20,-20,-30,-40,-50],[-30,-20,-10,0,0,-10,-20,-30],[-30,-10,20,30,30,20,-10,-30],[-30,-10,30,40,40,30,-10,-30],[-30,-10,30,40,40,30,-10,-30],[-30,-10,20,30,30,20,-10,-30],[-30,-30,0,0,0,0,-30,-30],[-50,-30,-30,-30,-30,-30,-30,-50]]
-    };
-    var pst_b = { p: pst_w['p'].slice().reverse(), n: pst_w['n'].slice().reverse(), b: pst_w['b'].slice().reverse(), r: pst_w['r'].slice().reverse(), q: pst_w['q'].slice().reverse(), k: pst_w['k'].slice().reverse(), k_e: pst_w['k_e'].slice().reverse() };
-    var pstOpponent = { w: pst_b, b: pst_w };
-    var pstSelf = { w: pst_w, b: pst_b };
-
-    function evaluateBoard(game, move, prevSum, color) {
-      if (game.in_checkmate()) { if (move.color === color) return 1e10; else return -1e10; }
-      if (game.in_draw() || game.in_threefold_repetition() || game.in_stalemate()) return 0;
-      if (game.in_check()) { if (move.color === color) prevSum += 50; else prevSum -= 50; }
-      var from = [8 - parseInt(move.from[1]), move.from.charCodeAt(0) - 'a'.charCodeAt(0)];
-      var to = [8 - parseInt(move.to[1]), move.to.charCodeAt(0) - 'a'.charCodeAt(0)];
-      if (prevSum < -1500 && move.piece === 'k') move.piece = 'k_e';
-      if ('captured' in move) {
-        if (move.color === color) prevSum += weights[move.captured] + pstOpponent[move.color][move.captured][to[0]][to[1]];
-        else prevSum -= weights[move.captured] + pstSelf[move.color][move.captured][to[0]][to[1]];
-      }
-      if (move.flags && move.flags.includes('p')) {
-        move.promotion = 'q';
-        if (move.color === color) {
-          prevSum -= weights[move.piece] + pstSelf[move.color][move.piece][from[0]][from[1]];
-          prevSum += weights[move.promotion] + pstSelf[move.color][move.promotion][to[0]][to[1]];
-        } else {
-          prevSum += weights[move.piece] + pstSelf[move.color][move.piece][from[0]][from[1]];
-          prevSum -= weights[move.promotion] + pstSelf[move.color][move.promotion][to[0]][to[1]];
-        }
-      } else {
-        if (move.color !== color) {
-          prevSum += pstSelf[move.color][move.piece][from[0]][from[1]];
-          prevSum -= pstSelf[move.color][move.piece][to[0]][to[1]];
-        } else {
-          prevSum -= pstSelf[move.color][move.piece][from[0]][from[1]];
-          prevSum += pstSelf[move.color][move.piece][to[0]][to[1]];
-        }
-      }
-      return prevSum;
-    }
-
-    function minimax(game, depth, alpha, beta, isMaximizingPlayer, sum, color) {
-      var children = game.ugly_moves({ verbose: true });
-      children.sort(function () { return 0.5 - Math.random(); });
-      if (depth === 0 || children.length === 0) return [null, sum];
-      var maxValue = Number.NEGATIVE_INFINITY, minValue = Number.POSITIVE_INFINITY, bestMove;
-      for (var i = 0; i < children.length; i++) {
-        var currMove = children[i];
-        var currPrettyMove = game.ugly_move(currMove);
-        var newSum = evaluateBoard(game, currPrettyMove, sum, color);
-        var [, childValue] = minimax(game, depth - 1, alpha, beta, !isMaximizingPlayer, newSum, color);
-        game.undo();
-        if (isMaximizingPlayer) {
-          if (childValue > maxValue) { maxValue = childValue; bestMove = currPrettyMove; }
-          if (childValue > alpha) alpha = childValue;
-        } else {
-          if (childValue < minValue) { minValue = childValue; bestMove = currPrettyMove; }
-          if (childValue < beta) beta = childValue;
-        }
-        if (alpha >= beta) break;
-      }
-      return isMaximizingPlayer ? [bestMove, maxValue] : [bestMove, minValue];
-    }
-
-    function getBestMoveMinimax(game, color, currSum) {
-      var depth = 2;
-      var [bestMove, ] = minimax(game, depth, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, true, currSum, color);
-      return bestMove;
-    }
-
-    // -------------------------
-    // UI init after resolving pieces
-    // -------------------------
-    (async function init() {
-      try {
-        await resolveAllPieces();
-      } catch(e) {
-        console.error('resolve pieces failed', e);
-      }
-      initStockfish();
-
-      // ensure fallback
-      var defaultAny = null;
-      for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
-      for (var kk in pieceImgResolved) if (!pieceImgResolved[kk]) pieceImgResolved[kk] = defaultAny;
-
-      function pieceTheme(piece) {
-        if (pieceImgResolved && pieceImgResolved[piece]) return pieceImgResolved[piece];
-        return defaultAny;
-      }
-
-      var config = {
-        draggable: true,
-        position: 'start',
-        pieceTheme: pieceTheme,
-        moveSpeed: 250,
-        snapbackSpeed: 200,
-        snapSpeed: 100,
-        onDragStart: function(source, piece) {
-          if (game.game_over()) return false;
-          if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
-        },
-        onDrop: function(source, target) {
-          var move = game.move({ from: source, to: target, promotion: 'q' });
-          if (move === null) { playSound("incorrect"); return 'snapback'; }
-          doMoveLogic(move, source, target, true);
-          return;
-        },
-        onSnapEnd: function() { board.position(game.fen()); }
-      };
-      board = Chessboard('myBoard', config);
-
-      setTimeout(function(){ $('#myBoard .chessboard-js-piece').css('transition', 'top 0.25s, left 0.25s'); }, 1000);
-    })();
-
-    // -------------------------
-    // sounds/effects/move logic
-    // -------------------------
-    function playSound(type) {
-      var el = null;
-      switch(type) {
-        case "move": el = document.getElementById("moveSound"); break;
-        case "capture": el = document.getElementById("captureSound"); break;
-        case "promote": el = document.getElementById("promoteSound"); break;
-        case "castling": el = document.getElementById("castlingSound"); break;
-        case "incorrect": el = document.getElementById("incorrectMoveSound"); break;
-        case "check": el = document.getElementById("checkSound"); break;
-        case "checkmate": el = document.getElementById("checkmateSound"); break;
-      }
-      if (el) { el.currentTime = 0; el.play().catch(()=>{}); }
-    }
-
-    function boardMoveEffect(square) {
-      var $sq = $('#myBoard .square-' + square);
-      $sq.addClass('move-effect');
-      setTimeout(function(){ $sq.removeClass('move-effect'); }, 400);
-    }
-
-    function playMoveEffectAndSound(move) {
-      if (move.flags.includes('k') || move.flags.includes('q')) playSound("castling");
-      else if (move.flags.includes('p')) playSound("promote");
-      else if (move.flags.includes('c') || move.flags.includes('e')) playSound("capture");
-      else playSound("move");
-      if (game.in_checkmate()) playSound("checkmate");
-      else if (game.in_check()) playSound("check");
-    }
-
-    function doMoveLogic(move, source, target, isDrag) {
-      playMoveEffectAndSound(move);
-      boardMoveEffect(source);
-      boardMoveEffect(target);
-      globalSum = evaluateBoard(game, move, globalSum, 'b');
-
-      if (!isDrag) board.position(game.fen());
-      clearHighlights();
-      selectedSquare = null;
-
-      setTimeout(async function(){
-        if (game.game_over() || game.turn() !== 'b') return;
-
-        // Prefer Stockfish
-        if (aiMode === 'stockfish' && stockfishEngine && engineReady) {
-          try {
-            var fen = game.fen();
-            var best = await stockfishBestMove(fen, stockfishMovetime).catch(()=>null);
-            if (best) {
-              var from = best.slice(0,2);
-              var to = best.slice(2,4);
-              var promotion = (best.length > 4) ? best[4] : 'q';
-              var botMove = game.move({ from: from, to: to, promotion: promotion });
-              if (botMove) {
-                playMoveEffectAndSound(botMove);
-                boardMoveEffect(botMove.from);
-                boardMoveEffect(botMove.to);
-                globalSum = evaluateBoard(game, botMove, globalSum, 'b');
-                board.position(game.fen());
-                return;
-              }
-            }
-          } catch(e) {
-            console.warn('Stockfish error, fallback to minimax', e);
-          }
-        }
-
-        // fallback minimax
-        if (!game.game_over() && game.turn() === 'b') {
-          var botMove = getBestMoveMinimax(game, 'b', globalSum);
-          if (botMove) {
-            game.move(botMove);
-            playMoveEffectAndSound(botMove);
-            boardMoveEffect(botMove.from);
-            boardMoveEffect(botMove.to);
-            globalSum = evaluateBoard(game, botMove, globalSum, 'b');
-            board.position(game.fen());
-          }
-        }
-      }, 350);
-    }
-
-    // -------------------------
-    // click-to-move UI (unchanged)
-    // -------------------------
-    var selectedSquare = null;
-    var legalTargets = [];
-
-    function clearHighlights() {
-      $('#myBoard .square-55d63').removeClass('highlight-click highlight-target');
-    }
-    function highlightSquares(squares, highlightClass) {
-      squares.forEach(function(sq){ $('#myBoard .square-' + sq).addClass(highlightClass); });
-    }
-
-    $('#myBoard').on('click', '.square-55d63', function() {
-      var square = $(this).attr('data-square');
-      if (game.game_over()) return;
-      if (!selectedSquare) {
-        var piece = game.get(square);
-        if (!piece || piece.color !== game.turn()) return;
-        selectedSquare = square;
-        clearHighlights();
-        $('#myBoard .square-' + square).addClass('highlight-click');
+      var piece2 = game.get(square);
+      if (piece2 && piece2.color === game.turn()) {
+        selectedSquare = square; clearHighlights(); $('#myBoard .square-' + square).addClass('highlight-click');
         var moves = game.moves({ square: square, verbose: true });
         legalTargets = moves.map(function(m){ return m.to; });
         highlightSquares(legalTargets, 'highlight-target');
-      } else {
-        if (square === selectedSquare) { selectedSquare = null; legalTargets = []; clearHighlights(); return; }
-        if (legalTargets.includes(square)) {
-          var move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
-          if (move === null) {
-            playSound("incorrect");
-            clearHighlights();
-            selectedSquare = null;
-            legalTargets = [];
-            board.position(game.fen());
-            return;
-          }
-          doMoveLogic(move, selectedSquare, square, false);
-          return;
-        }
-        var piece2 = game.get(square);
-        if (piece2 && piece2.color === game.turn()) {
-          selectedSquare = square;
-          clearHighlights();
-          $('#myBoard .square-' + square).addClass('highlight-click');
-          var moves = game.moves({ square: square, verbose: true });
-          legalTargets = moves.map(function(m){ return m.to; });
-          highlightSquares(legalTargets, 'highlight-target');
-          return;
-        }
-        selectedSquare = null; legalTargets = []; clearHighlights();
+        return;
       }
-    });
+      selectedSquare = null; legalTargets = []; clearHighlights();
+    }
+  });
 
-    $(document).on('click', function(e){ if ($(e.target).closest('#myBoard').length === 0) { clearHighlights(); selectedSquare=null; legalTargets=[]; } });
-    $('#myBoard').on('mousedown', '.square-55d63', function(){ clearHighlights(); selectedSquare=null; legalTargets=[]; });
+  $(document).on('click', function(e){ if ($(e.target).closest('#myBoard').length === 0) { clearHighlights(); selectedSquare=null; legalTargets=[]; } });
+  $('#myBoard').on('mousedown', '.square-55d63', function(){ clearHighlights(); selectedSquare=null; legalTargets=[]; });
 
-    </script>
+  </script>
 </body>
 </html>
