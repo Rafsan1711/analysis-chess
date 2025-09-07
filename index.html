@@ -1,46 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Chess Bot Minimal + Drag + Click + Smooth Move + Sound + Effect + Stockfish</title>
+    <title>Chess Bot + Stockfish (Adaptive, strong but efficient)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
     <style>
-        body {
-            background: #fafafa;
-        }
-        .board-container {
-            max-width: 420px;
-            margin: 60px auto 0 auto;
-        }
-        #myBoard {
-            width: 100%;
-            min-width: 320px;
-            min-height: 320px;
-        }
-        .highlight-click {
-            box-shadow: 0 0 8px 4px orange inset;
-        }
-        .highlight-target {
-            box-shadow: 0 0 4px 2px green inset;
-        }
-        .move-effect {
-            animation: boardMoveEffect 0.4s;
-        }
-        @keyframes boardMoveEffect {
-            0% { box-shadow: 0 0 10px 4px #33dd33 inset; }
-            100% { box-shadow: none; }
-        }
-        /* Smooth piece movement fix for Chessboard.js */
-        .chessboard-js-piece {
-            transition: top 0.25s, left 0.25s;
-            z-index: 10;
-        }
+        body { background: #fafafa; }
+        .board-container { max-width: 420px; margin: 60px auto 0 auto; }
+        #myBoard { width: 100%; min-width: 320px; min-height: 320px; }
+        .highlight-click { box-shadow: 0 0 8px 4px orange inset; }
+        .highlight-target { box-shadow: 0 0 4px 2px green inset; }
+        .move-effect { animation: boardMoveEffect 0.4s; }
+        @keyframes boardMoveEffect { 0% { box-shadow: 0 0 10px 4px #33dd33 inset; } 100% { box-shadow: none; } }
+        .chessboard-js-piece { transition: top 0.25s, left 0.25s; z-index: 10; }
+        /* small status HUD */
+        #engineStatus { text-align:center; font-size:13px; color:#444; margin-top:6px; }
     </style>
 </head>
 <body>
     <div class="board-container">
         <div id="myBoard"></div>
+        <div id="engineStatus">Engine: initializing...</div>
     </div>
+
     <!-- Sound Effects -->
     <audio id="moveSound" src="sounds/move.mp3"></audio>
     <audio id="captureSound" src="sounds/capture.mp3"></audio>
@@ -50,33 +32,33 @@
     <audio id="checkSound" src="sounds/check.mp3"></audio>
     <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
 
-    <!-- jQuery + Chessboard.js + Stockfish (WASM wrapper) -->
+    <!-- libs -->
     <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
 
-    <!-- Stockfish: using wasm wrapper (CDN). If you prefer another variant, replace this tag -->
+    <!-- Stockfish wasm wrapper (CDN) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.wasm.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
-    <!-- Your Chess logic (local) -->
+    <!-- local chess lib -->
     <script src="js/chess.js"></script>
 
     <script>
-    // =========================
-    // piece resolve / fallback
-    // =========================
+    // -------------------------
+    // piece fallback/resolver
+    // -------------------------
     var pieceCandidates = {
-      'wK': ['pieces/wK.svg', 'pieces/wKing.svg', 'pieces/WK.svg'],
-      'wQ': ['pieces/wQ.svg', 'pieces/wQueen.svg', 'pieces/WQ.svg'],
-      'wR': ['pieces/wR.svg', 'pieces/wRook.svg', 'pieces/WR.svg'],
-      'wB': ['pieces/wB.svg', 'pieces/wBishop.svg', 'pieces/WB.svg'],
-      'wN': ['pieces/wN.svg', 'pieces/wKnight.svg', 'pieces/WN.svg', 'pieces/wn.svg'],
-      'wP': ['pieces/wP.svg', 'pieces/wPawn.svg', 'pieces/WP.svg'],
-      'bK': ['pieces/bK.svg', 'pieces/bKing.svg', 'pieces/BK.svg'],
-      'bQ': ['pieces/bQ.svg', 'pieces/bQueen.svg', 'pieces/BQ.svg'],
-      'bR': ['pieces/bR.svg', 'pieces/bRook.svg', 'pieces/BR.svg'],
-      'bB': ['pieces/bB.svg', 'pieces/bBishop.svg', 'pieces/BB.svg'],
-      'bN': ['pieces/bN.svg', 'pieces/bKnight.svg', 'pieces/BN.svg', 'pieces/bn.svg', 'pieces/black-knight.svg'],
-      'bP': ['pieces/bP.svg', 'pieces/bPawn.svg', 'pieces/BP.svg']
+      'wK': ['pieces/wK.svg','pieces/wKing.svg','pieces/WK.svg'],
+      'wQ': ['pieces/wQ.svg','pieces/wQueen.svg','pieces/WQ.svg'],
+      'wR': ['pieces/wR.svg','pieces/wRook.svg','pieces/WR.svg'],
+      'wB': ['pieces/wB.svg','pieces/wBishop.svg','pieces/WB.svg'],
+      'wN': ['pieces/wN.svg','pieces/wKnight.svg','pieces/WN.svg','pieces/wn.svg'],
+      'wP': ['pieces/wP.svg','pieces/wPawn.svg','pieces/WP.svg'],
+      'bK': ['pieces/bK.svg','pieces/bKing.svg','pieces/BK.svg'],
+      'bQ': ['pieces/bQ.svg','pieces/bQueen.svg','pieces/BQ.svg'],
+      'bR': ['pieces/bR.svg','pieces/bRook.svg','pieces/BR.svg'],
+      'bB': ['pieces/bB.svg','pieces/bBishop.svg','pieces/BB.svg'],
+      'bN': ['pieces/bN.svg','pieces/bKnight.svg','pieces/BN.svg','pieces/bn.svg','pieces/black-knight.svg'],
+      'bP': ['pieces/bP.svg','pieces/bPawn.svg','pieces/BP.svg']
     };
     var pieceImgResolved = {};
 
@@ -88,68 +70,92 @@
         img.src = url;
       });
     }
+
     async function resolvePiece(pieceKey, candidates) {
-      for (var i = 0; i < candidates.length; i++) {
+      for (var i=0;i<candidates.length;i++) {
         try {
           var ok = await loadImage(candidates[i]);
           console.log('Loaded piece', pieceKey, '->', candidates[i]);
           return candidates[i];
-        } catch (e) {
+        } catch(e) {
           // try next
         }
       }
       console.warn('No image found for', pieceKey, 'tried:', candidates);
       return null;
     }
-    async function resolveAllPieces() {
+
+    async function resolveAllPieces(){
       var keys = Object.keys(pieceCandidates);
-      for (var i = 0; i < keys.length; i++) {
+      for (var i=0;i<keys.length;i++){
         var k = keys[i];
-        var resolved = await resolvePiece(k, pieceCandidates[k]);
-        pieceImgResolved[k] = resolved;
+        pieceImgResolved[k] = await resolvePiece(k, pieceCandidates[k]);
       }
-      // fallback knights or any missing to some available image
+      // fallback: if bN missing, use wN or any available
       if (!pieceImgResolved['bN']) {
-        if (pieceImgResolved['wN']) {
-          pieceImgResolved['bN'] = pieceImgResolved['wN'];
-        } else {
-          for (var p in pieceImgResolved) {
-            if (pieceImgResolved[p]) { pieceImgResolved['bN'] = pieceImgResolved[p]; break; }
-          }
+        if (pieceImgResolved['wN']) pieceImgResolved['bN'] = pieceImgResolved['wN'];
+        else {
+          for (var p in pieceImgResolved){ if (pieceImgResolved[p]) { pieceImgResolved['bN'] = pieceImgResolved[p]; break; } }
         }
       }
       var defaultAny = null;
-      for (var k in pieceImgResolved) { if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; } }
-      for (var kk in pieceImgResolved) { if (!pieceImgResolved[kk]) pieceImgResolved[kk] = defaultAny; }
-      console.log('Resolved piece images:', pieceImgResolved);
+      for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
+      for (var k2 in pieceImgResolved) if (!pieceImgResolved[k2]) pieceImgResolved[k2] = defaultAny;
+      console.log('Resolved pieces:', pieceImgResolved);
       return pieceImgResolved;
     }
 
-    // =========================
-    // Chess AI / engine setup
-    // =========================
+    // -------------------------
+    // engine / adaptive options
+    // -------------------------
     var board = null;
     var game = new Chess();
-    var globalSum = 0; // your evaluation state (kept)
+    var globalSum = 0;
+
     var aiMode = 'stockfish'; // 'stockfish' or 'minimax'
     var stockfishEngine = null;
     var engineReady = false;
-    var engineBusy = false; // only one query at a time in this simple implementation
-    var stockfishMovetime = 200; // ms for Stockfish calculation (adjust for difficulty)
+    var engineBusy = false;
+    var stockfishMovetime = null; // computed adaptively later
+    var engineOptions = {}; // computed
 
-    // Initialize Stockfish (try several factory names to be robust)
+    function computeEngineOptions() {
+      var hwc = navigator.hardwareConcurrency || 2;
+      var isMobile = /Mobi|Android/i.test(navigator.userAgent) || (window.innerWidth && window.innerWidth < 720);
+      // Threads: keep low for mobile to avoid too many cores; allow more on desktop but cap to 4
+      var threads = isMobile ? 1 : Math.min(4, Math.max(1, Math.floor(hwc / 1)));
+      // Hash: memory in MB - smaller for mobile
+      var hash = isMobile ? 16 : 64;
+      // Movetime (ms): balance strength and CPU usage
+      var movetime;
+      if (isMobile) movetime = 350; // responsive on phones
+      else { // desktop
+        // prefer stronger on more cores but don't explode CPU
+        movetime = hwc >= 8 ? 1200 : 800;
+      }
+      // Skill Level: max (20)
+      var skill = 20;
+
+      engineOptions = { threads: threads, hash: hash, movetime: movetime, skill: skill, isMobile: isMobile, hwc: hwc };
+      stockfishMovetime = movetime;
+      return engineOptions;
+    }
+
+    // Initialize Stockfish robustly
     function initStockfish() {
+      var opts = computeEngineOptions();
+      console.log('Engine options:', opts);
+      document.getElementById('engineStatus').innerText = 'Engine: loading...';
+
       try {
-        // If STOCKFISH global factory exists (from stockfish.wasm.js), call it:
         if (typeof STOCKFISH === 'function') {
-          stockfishEngine = STOCKFISH();
+          stockfishEngine = STOCKFISH(); // common wrapper from wasm build
         } else if (typeof stockfish === 'function') {
           stockfishEngine = stockfish();
         } else if (typeof Stockfish === 'function') {
           stockfishEngine = Stockfish();
         } else if (typeof Worker !== 'undefined') {
-          // Fallback: try to spawn worker from common CDN (rare path, but okay)
-          // NOTE: This fallback tries to load stockfish.js as worker; if blocked by CORS, it won't work.
+          // fallback: try to make worker from CDN (may fail due to CORS)
           stockfishEngine = new Worker('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');
         }
       } catch (e) {
@@ -158,97 +164,99 @@
       }
 
       if (!stockfishEngine) {
-        console.warn('Stockfish engine not available — will use minimax fallback.');
         engineReady = false;
+        document.getElementById('engineStatus').innerText = 'Engine: unavailable (fallback to minimax)';
         return;
       }
 
-      // engine message handler: general logger + uci handshake
-      stockfishEngine.onmessage = function(event) {
+      // default logger handler
+      function engineMessageHandler(event) {
         var line = (event.data || event).toString();
         console.log('stockfish:', line);
-        if (line.indexOf('uciok') !== -1 || line.indexOf('readyok') !== -1) {
+        // listen for readyok
+        if (line.indexOf('readyok') !== -1) {
           engineReady = true;
+          document.getElementById('engineStatus').innerText = 'Engine: ready (Stockfish, skill ' + opts.skill + ', threads ' + opts.threads + ', hash ' + opts.hash + 'MB)';
         }
-      };
+        if (line.indexOf('uciok') !== -1) {
+          // ignore, continue
+        }
+      }
 
-      // start handshake
+      // attach handler (for both worker and wrapper)
+      stockfishEngine.onmessage = engineMessageHandler;
+
+      // handshake and set options, then isready
       try {
         stockfishEngine.postMessage('uci');
-        // optional: set threads, hash size, etc.
-        stockfishEngine.postMessage('setoption name Threads value 2');
-        stockfishEngine.postMessage('setoption name Hash value 64');
-        // also request ready
+        // set sensible options: Threads, Hash, Skill Level, Limit Strength off
+        stockfishEngine.postMessage('setoption name Threads value ' + opts.threads);
+        stockfishEngine.postMessage('setoption name Hash value ' + opts.hash);
+        // Skill Level sometimes present; we set to 20 (max)
+        stockfishEngine.postMessage('setoption name Skill Level value ' + opts.skill);
+        // Limit strength off (we want full strength)
+        stockfishEngine.postMessage('setoption name UCI_LimitStrength value false');
+        // some builds expose 'Use NNUE' or 'EvalFile'; leave these default
+        // now ask engine to get ready
         stockfishEngine.postMessage('isready');
       } catch (e) {
-        console.error('Stockfish postMessage failed:', e);
+        console.error('Failed to configure engine:', e);
       }
     }
 
-    // Query stockfish for best move for a fen; returns Promise that resolves to uci move like "e2e4"
+    // Query best move from stockfish with movetime; returns Promise resolving to UCI move string or rejects
     function stockfishBestMove(fen, movetimeMs) {
       return new Promise(function(resolve, reject) {
-        if (!stockfishEngine || !engineReady) {
-          reject('engine not ready');
-          return;
-        }
-        if (engineBusy) {
-          reject('engine busy');
-          return;
-        }
+        if (!stockfishEngine || !engineReady) return reject('engine not ready');
+        if (engineBusy) return reject('engine busy');
         engineBusy = true;
 
-        var handle = function(event) {
+        // temporary handler to capture bestmove
+        var captureHandler = function(event) {
           var line = (event.data || event).toString().trim();
-          // console.log('SF:', line);
-          if (line.length === 0) return;
-          // bestmove <move> [ponder <move>]
+          if (!line) return;
+          // detect bestmove
           if (line.indexOf('bestmove') === 0) {
-            try {
-              var parts = line.split(/\s+/);
-              var best = parts[1];
-              engineBusy = false;
-              // detach this handler (set onmessage back to logger)
-              stockfishEngine.onmessage = function(ev) {
-                var ln = (ev.data || ev).toString();
-                console.log('stockfish:', ln);
-              };
-              resolve(best);
-            } catch (err) {
-              engineBusy = false;
-              reject(err);
-            }
+            var parts = line.split(/\s+/);
+            var best = parts[1];
+            engineBusy = false;
+            // restore default handler
+            stockfishEngine.onmessage = engineDefaultHandler;
+            resolve(best);
           }
+          // could capture info lines optionally for UI
         };
 
-        // temporarily override onmessage to capture bestmove
-        stockfishEngine.onmessage = handle;
+        // save default handler to restore later
+        var engineDefaultHandler = stockfishEngine.onmessage;
 
-        // send position and go command
+        // set our temporary listener
+        stockfishEngine.onmessage = captureHandler;
+
         try {
           stockfishEngine.postMessage('position fen ' + fen);
-          stockfishEngine.postMessage('go movetime ' + parseInt(movetimeMs, 10));
+          stockfishEngine.postMessage('go movetime ' + parseInt(movetimeMs,10));
         } catch (e) {
           engineBusy = false;
-          // restore onmessage logger
-          stockfishEngine.onmessage = function(ev) { console.log('stockfish:', (ev.data||ev).toString()); };
+          stockfishEngine.onmessage = engineDefaultHandler;
           reject(e);
         }
-        // safety timeout: if SF doesn't respond in reasonable time, reject
-        setTimeout(function() {
+
+        // safety timeout: restore after some time
+        setTimeout(function(){
           if (engineBusy) {
             engineBusy = false;
-            stockfishEngine.onmessage = function(ev) { console.log('stockfish:', (ev.data||ev).toString()); };
+            stockfishEngine.onmessage = engineDefaultHandler;
             reject('timeout');
           }
-        }, Math.max(5000, movetimeMs + 2000));
+        }, Math.max(8000, movetimeMs + 4000));
       });
     }
 
-    // =========================
-    // existing AI (minimax) kept as fallback (unchanged)
-    // =========================
-    var weights = { p: 100, n: 280, b: 320, r: 479, q: 929, k: 60000, k_e: 60000 };
+    // -------------------------
+    // existing minimax fallback kept
+    // -------------------------
+    var weights = { p:100,n:280,b:320,r:479,q:929,k:60000,k_e:60000 };
     var pst_w = {
       p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
       n: [[-66,-53,-75,-75,-10,-55,-58,-70],[-3,-6,100,-36,4,62,-4,-14],[10,67,1,74,73,27,62,-2],[24,24,45,37,33,41,25,17],[-1,5,31,21,22,35,2,0],[-18,10,13,22,18,15,11,-14],[-23,-15,2,0,2,0,-23,-20],[-74,-23,-26,-24,-19,-35,-22,-69]],
@@ -258,37 +266,20 @@
       k: [[4,54,47,-99,-99,60,83,-62],[-32,10,55,56,56,55,10,3],[-62,12,-57,44,-67,28,37,-31],[-55,50,11,-4,-19,13,0,-49],[-55,-43,-52,-28,-51,-47,-8,-50],[-47,-42,-43,-79,-64,-32,-29,-32],[-4,3,-14,-50,-57,-18,13,4],[17,30,-3,-14,6,-1,40,18]],
       k_e: [[-50,-40,-30,-20,-20,-30,-40,-50],[-30,-20,-10,0,0,-10,-20,-30],[-30,-10,20,30,30,20,-10,-30],[-30,-10,30,40,40,30,-10,-30],[-30,-10,30,40,40,30,-10,-30],[-30,-10,20,30,30,20,-10,-30],[-30,-30,0,0,0,0,-30,-30],[-50,-30,-30,-30,-30,-30,-30,-50]]
     };
-    var pst_b = {
-      p: pst_w['p'].slice().reverse(),
-      n: pst_w['n'].slice().reverse(),
-      b: pst_w['b'].slice().reverse(),
-      r: pst_w['r'].slice().reverse(),
-      q: pst_w['q'].slice().reverse(),
-      k: pst_w['k'].slice().reverse(),
-      k_e: pst_w['k_e'].slice().reverse(),
-    };
+    var pst_b = { p: pst_w['p'].slice().reverse(), n: pst_w['n'].slice().reverse(), b: pst_w['b'].slice().reverse(), r: pst_w['r'].slice().reverse(), q: pst_w['q'].slice().reverse(), k: pst_w['k'].slice().reverse(), k_e: pst_w['k_e'].slice().reverse() };
     var pstOpponent = { w: pst_b, b: pst_w };
     var pstSelf = { w: pst_w, b: pst_b };
 
     function evaluateBoard(game, move, prevSum, color) {
-      if (game.in_checkmate()) {
-        if (move.color === color) return 1e10;
-        else return -1e10;
-      }
+      if (game.in_checkmate()) { if (move.color === color) return 1e10; else return -1e10; }
       if (game.in_draw() || game.in_threefold_repetition() || game.in_stalemate()) return 0;
-      if (game.in_check()) {
-        if (move.color === color) prevSum += 50;
-        else prevSum -= 50;
-      }
+      if (game.in_check()) { if (move.color === color) prevSum += 50; else prevSum -= 50; }
       var from = [8 - parseInt(move.from[1]), move.from.charCodeAt(0) - 'a'.charCodeAt(0)];
       var to = [8 - parseInt(move.to[1]), move.to.charCodeAt(0) - 'a'.charCodeAt(0)];
       if (prevSum < -1500 && move.piece === 'k') move.piece = 'k_e';
       if ('captured' in move) {
-        if (move.color === color) {
-          prevSum += weights[move.captured] + pstOpponent[move.color][move.captured][to[0]][to[1]];
-        } else {
-          prevSum -= weights[move.captured] + pstSelf[move.color][move.captured][to[0]][to[1]];
-        }
+        if (move.color === color) prevSum += weights[move.captured] + pstOpponent[move.color][move.captured][to[0]][to[1]];
+        else prevSum -= weights[move.captured] + pstSelf[move.color][move.captured][to[0]][to[1]];
       }
       if (move.flags && move.flags.includes('p')) {
         move.promotion = 'q';
@@ -340,24 +331,21 @@
       return bestMove;
     }
 
-    // =========================
-    // UI config & board init
-    // =========================
+    // -------------------------
+    // UI init after resolving pieces
+    // -------------------------
     (async function init() {
-      // resolve piece images first
       try {
         await resolveAllPieces();
-      } catch (e) {
-        console.error('Error resolving pieces:', e);
+      } catch(e) {
+        console.error('resolve pieces failed', e);
       }
-
-      // stockfish init
       initStockfish();
 
-      // ensure there's at least a fallback image
+      // ensure fallback
       var defaultAny = null;
-      for (var k in pieceImgResolved) { if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; } }
-      for (var kk in pieceImgResolved) { if (!pieceImgResolved[kk]) pieceImgResolved[kk] = defaultAny; }
+      for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
+      for (var kk in pieceImgResolved) if (!pieceImgResolved[kk]) pieceImgResolved[kk] = defaultAny;
 
       function pieceTheme(piece) {
         if (pieceImgResolved && pieceImgResolved[piece]) return pieceImgResolved[piece];
@@ -373,32 +361,24 @@
         snapSpeed: 100,
         onDragStart: function(source, piece) {
           if (game.game_over()) return false;
-          if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
-              (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
+          if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
         },
         onDrop: function(source, target) {
           var move = game.move({ from: source, to: target, promotion: 'q' });
-          if (move === null) {
-            playSound("incorrect");
-            return 'snapback';
-          }
+          if (move === null) { playSound("incorrect"); return 'snapback'; }
           doMoveLogic(move, source, target, true);
           return;
         },
-        onSnapEnd: function() {
-          board.position(game.fen());
-        }
+        onSnapEnd: function() { board.position(game.fen()); }
       };
       board = Chessboard('myBoard', config);
 
-      setTimeout(function() {
-        $('#myBoard .chessboard-js-piece').css('transition', 'top 0.25s, left 0.25s');
-      }, 1000);
+      setTimeout(function(){ $('#myBoard .chessboard-js-piece').css('transition', 'top 0.25s, left 0.25s'); }, 1000);
     })();
 
-    // =========================
-    // Sounds, effects, move logic
-    // =========================
+    // -------------------------
+    // sounds/effects/move logic
+    // -------------------------
     function playSound(type) {
       var el = null;
       switch(type) {
@@ -416,7 +396,7 @@
     function boardMoveEffect(square) {
       var $sq = $('#myBoard .square-' + square);
       $sq.addClass('move-effect');
-      setTimeout(function() { $sq.removeClass('move-effect'); }, 400);
+      setTimeout(function(){ $sq.removeClass('move-effect'); }, 400);
     }
 
     function playMoveEffectAndSound(move) {
@@ -428,32 +408,25 @@
       else if (game.in_check()) playSound("check");
     }
 
-    // doMoveLogic: after player's move we compute bot move (stockfish or minimax fallback)
     function doMoveLogic(move, source, target, isDrag) {
       playMoveEffectAndSound(move);
       boardMoveEffect(source);
       boardMoveEffect(target);
       globalSum = evaluateBoard(game, move, globalSum, 'b');
 
-      if (!isDrag) {
-        board.position(game.fen());
-      }
-
+      if (!isDrag) board.position(game.fen());
       clearHighlights();
       selectedSquare = null;
 
-      // Bot move: decide engine
-      setTimeout(async function() {
+      setTimeout(async function(){
         if (game.game_over() || game.turn() !== 'b') return;
 
-        // prefer Stockfish if aiMode is stockfish and engineReady
+        // Prefer Stockfish
         if (aiMode === 'stockfish' && stockfishEngine && engineReady) {
           try {
             var fen = game.fen();
-            // ask stockfish
-            var best = await stockfishBestMove(fen, stockfishMovetime).catch(function(e){ return null; });
+            var best = await stockfishBestMove(fen, stockfishMovetime).catch(()=>null);
             if (best) {
-              // best is like "e7e5" or "e7e8q"
               var from = best.slice(0,2);
               var to = best.slice(2,4);
               var promotion = (best.length > 4) ? best[4] : 'q';
@@ -467,13 +440,12 @@
                 return;
               }
             }
-            // if stockfish returned null or move failed -> fallback to minimax below
-          } catch (err) {
-            console.warn('Stockfish failed or timed out, falling back to minimax', err);
+          } catch(e) {
+            console.warn('Stockfish error, fallback to minimax', e);
           }
         }
 
-        // fallback: minimax (original)
+        // fallback minimax
         if (!game.game_over() && game.turn() === 'b') {
           var botMove = getBestMoveMinimax(game, 'b', globalSum);
           if (botMove) {
@@ -488,20 +460,17 @@
       }, 350);
     }
 
-    // =========================
-    // Click-to-move (unchanged)
-    // =========================
+    // -------------------------
+    // click-to-move UI (unchanged)
+    // -------------------------
     var selectedSquare = null;
     var legalTargets = [];
 
     function clearHighlights() {
       $('#myBoard .square-55d63').removeClass('highlight-click highlight-target');
     }
-
     function highlightSquares(squares, highlightClass) {
-      squares.forEach(function(sq) {
-        $('#myBoard .square-' + sq).addClass(highlightClass);
-      });
+      squares.forEach(function(sq){ $('#myBoard .square-' + sq).addClass(highlightClass); });
     }
 
     $('#myBoard').on('click', '.square-55d63', function() {
@@ -514,15 +483,10 @@
         clearHighlights();
         $('#myBoard .square-' + square).addClass('highlight-click');
         var moves = game.moves({ square: square, verbose: true });
-        legalTargets = moves.map(function(move) { return move.to; });
+        legalTargets = moves.map(function(m){ return m.to; });
         highlightSquares(legalTargets, 'highlight-target');
       } else {
-        if (square === selectedSquare) {
-          selectedSquare = null;
-          legalTargets = [];
-          clearHighlights();
-          return;
-        }
+        if (square === selectedSquare) { selectedSquare = null; legalTargets = []; clearHighlights(); return; }
         if (legalTargets.includes(square)) {
           var move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
           if (move === null) {
@@ -542,29 +506,16 @@
           clearHighlights();
           $('#myBoard .square-' + square).addClass('highlight-click');
           var moves = game.moves({ square: square, verbose: true });
-          legalTargets = moves.map(function(move) { return move.to; });
+          legalTargets = moves.map(function(m){ return m.to; });
           highlightSquares(legalTargets, 'highlight-target');
           return;
         }
-        selectedSquare = null;
-        legalTargets = [];
-        clearHighlights();
+        selectedSquare = null; legalTargets = []; clearHighlights();
       }
     });
 
-    $(document).on('click', function(e){
-      if ($(e.target).closest('#myBoard').length === 0) {
-        clearHighlights();
-        selectedSquare = null;
-        legalTargets = [];
-      }
-    });
-
-    $('#myBoard').on('mousedown', '.square-55d63', function() {
-      clearHighlights();
-      selectedSquare = null;
-      legalTargets = [];
-    });
+    $(document).on('click', function(e){ if ($(e.target).closest('#myBoard').length === 0) { clearHighlights(); selectedSquare=null; legalTargets=[]; } });
+    $('#myBoard').on('mousedown', '.square-55d63', function(){ clearHighlights(); selectedSquare=null; legalTargets=[]; });
 
     </script>
 </body>
