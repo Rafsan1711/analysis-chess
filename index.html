@@ -2,143 +2,170 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Chess Bot + Stockfish — Chessground</title>
+  <title>Chess Bot + Stockfish — Stable (with Eval Bar, PGN & Captures)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- chessground CSS (CDN) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessground/9.2.1/chessground.min.css" />
-
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
   <style>
-    /* ---------- overall ---------- */
+    /* ---------- base ---------- */
     body { background:#fafafa; font-family: system-ui, Arial, sans-serif; margin:0; padding:0; }
-    .app {
-      display:flex;
-      justify-content:center;
-      align-items:flex-start;
-      gap:16px;
-      padding:20px;
-      box-sizing:border-box;
-    }
+    .container-wrap { max-width:1100px; margin:18px auto; padding:12px; }
+    .board-card { background:white; border-radius:12px; box-shadow: 0 6px 18px rgba(0,0,0,0.06); padding:12px; display:flex; gap:12px; align-items:flex-start; }
 
-    /* ---------- eval bar (left vertical) ---------- */
+    /* ---------- eval bar (always vertical!) ---------- */
     .eval-bar {
-      width:36px;              /* fixed width so it stays vertical */
-      height:460px;            /* default - responsive changed below */
-      background:linear-gradient(#e6e6e6,#ddd);
-      border-radius:10px;
-      box-shadow:0 2px 6px rgba(0,0,0,0.08);
-      position:relative;
-      overflow:hidden;
-      flex-shrink:0;
+      width:48px; /* fixed narrow vertical bar */
+      min-width:48px;
+      height:420px; /* matches board visual height area */
       display:flex;
+      flex-direction:column;
       align-items:center;
       justify-content:center;
-      padding:6px;
+      padding:6px 4px;
+      border-radius:10px;
+      background:linear-gradient(180deg,#f6f6f6,#efefef);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
     }
+    .eval-track { width:18px; height:86%; background:#e6e6e6; border-radius:9px; position:relative; overflow:hidden; }
     .eval-fill {
-      position:absolute;
-      left:6px; right:6px;
-      bottom:6px;
-      border-radius:8px;
-      background: linear-gradient(0deg, #1a1a1a 0%, #cfcfcf 100%); /* will be masked by transform to reflect advantage */
-      transform-origin: bottom;
-      height:50%;
-      transition:height 0.25s ease;
-      box-shadow:inset 0 -10px 20px rgba(0,0,0,0.12);
+      position:absolute; bottom:0; left:0; right:0;
+      height:50%; /* updated by JS */
+      background:linear-gradient(180deg,#2ecc71,#27ae60); /* white advantage color (green) */
+      transition:height 300ms ease;
     }
-    .eval-label {
-      position:absolute;
-      top:6px;
-      width:100%;
-      text-align:center;
-      font-size:11px;
-      color:#333;
-      pointer-events:none;
+    .eval-fill.black-adv { background: linear-gradient(0deg,#e74c3c,#c0392b); } /* black advantage */
+    .eval-label { font-size:12px; margin-top:8px; text-align:center; transform:rotate(0); }
+    .eval-mate { font-weight:700; color:#111; }
+
+    /* ---------- main board area ---------- */
+    .board-area { flex:1; display:flex; flex-direction:column; align-items:center; gap:8px; }
+    .top-captures, .bottom-captures { width:100%; display:flex; justify-content:center; gap:12px; align-items:center; flex-wrap:wrap; }
+    .captures-card { background:#f8f9fb; border-radius:8px; padding:6px 8px; min-height:36px; display:flex; gap:6px; align-items:center; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
+    .captures-list img { width:20px; height:20px; object-fit:contain; display:inline-block; margin-right:2px; }
+    .captures-adv { font-size:13px; font-weight:700; margin-left:8px; color:#111; }
+
+    /* board sizing (keeps your earlier min widths) */
+    #myBoard { width:100%; max-width:420px; min-width:260px; min-height:320px; margin:0 auto; }
+
+    /* engine status area */
+    #engineStatus { font-size:13px; color:#333; margin-top:6px; text-align:center; }
+
+    /* ---------- right side small column ---------- */
+    .side-controls { width:160px; min-width:140px; display:flex; flex-direction:column; gap:8px; align-items:flex-start; }
+    .side-controls .card { width:100%; background:#fafafa; padding:8px; border-radius:8px; box-shadow:0 1px 2px rgba(0,0,0,0.03); font-size:13px; }
+    .small-btn { border:0; background:#2d9cdb; color:white; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:13px; }
+    .small-btn.secondary { background:#6c757d; }
+
+    /* ---------- PGN table (responsive) ---------- */
+    .pgn-card { margin-top:10px; border-radius:10px; padding:8px; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.04); }
+    .pgn-header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; }
+    .pgn-table { width:100%; border-collapse:collapse; }
+    .pgn-table th, .pgn-table td { padding:6px 8px; border-bottom:1px solid #f1f3f5; font-size:14px; }
+    .pgn-table th { text-align:left; font-size:13px; color:#666; }
+    .pgn-scroll { max-height:220px; overflow:auto; }
+
+    /* ---------- small responsive tweaks ---------- */
+    @media (max-width:760px) {
+      .board-card { flex-direction:row; gap:8px; align-items:flex-start; }
+      .side-controls { display:none; } /* hide right column on narrow */
+      .eval-bar { height:360px; }
+      #myBoard { max-width:320px; }
     }
 
-    /* ---------- board + engine status + PGN ---------- */
-    .main-col {
-      width:420px;
-      max-width: calc(100vw - 120px);
-    }
-    #boardContainer {
-      width:100%;
-      aspect-ratio:1/1; /* keeps square */
-      border-radius:10px;
-      overflow:hidden;
-      box-shadow:0 6px 18px rgba(0,0,0,0.06);
-      background:white;
-    }
-    #engineStatus { font-size:13px; color:#333; margin-top:8px; }
+    /* Keep evaluation bar always vertical - do NOT switch to horizontal on small screens. */
+    /* (we intentionally avoid rotating the layout into columns for eval) */
 
-    /* PGN table */
-    .pgn-box {
-      margin-top:12px;
-      background:#fff;
-      border-radius:10px;
-      padding:10px;
-      box-shadow:0 4px 12px rgba(0,0,0,0.04);
-      max-height:190px;
-      overflow:auto;
-    }
-    .pgn-grid {
-      display:grid;
-      grid-template-columns: 40px 1fr 1fr;
-      gap:6px 10px;
-      align-items:center;
-      font-family:monospace;
-      font-size:14px;
-    }
-    .pgn-movenum { color:#666; text-align:right; padding-right:6px; }
-    .pgn-move { padding:6px 8px; border-radius:6px; }
-    .pgn-move.w { background:#f7fbff; color:#072a61; }
-    .pgn-move.b { background:#fff7fb; color:#610707; }
-    .pgn-row:hover .pgn-move { box-shadow:0 2px 6px rgba(0,0,0,0.06); transform:translateY(-2px); transition:all .12s ease; cursor:pointer; }
-
-    /* responsiveness: ensure eval bar remains vertical even on small screens */
-    @media (max-width:720px) {
-      .app { padding:12px; gap:10px; align-items:flex-start; }
-      .eval-bar { height:60vw; width:14vw; min-width:34px; }
-      .main-col { width:60vw; max-width: calc(100vw - 80px); }
-      .pgn-grid { font-size:13px; }
-    }
-
-    /* small utility highlight class for move animation */
-    .square-flash {
-      box-shadow:0 0 18px 6px rgba(51,221,51,0.12) inset;
-      animation: flashit .38s;
-    }
-    @keyframes flashit {
-      from { box-shadow:0 0 18px 8px rgba(51,221,51,0.18) inset; }
-      to { box-shadow:none; }
-    }
-
+    /* highlight classes reused */
+    .highlight-click { box-shadow:0 0 8px 4px orange inset; }
+    .highlight-target { box-shadow:0 0 4px 2px green inset; }
+    .move-effect { animation: boardMoveEffect 0.4s; }
+    @keyframes boardMoveEffect { 0% { box-shadow:0 0 10px 4px #33dd33 inset;} 100% { box-shadow:none; } }
+    .chessboard-js-piece { transition: top 0.25s, left 0.25s; z-index: 10; }
   </style>
 </head>
 <body>
-  <div class="app">
-    <!-- left vertical evaluation bar -->
-    <div class="eval-bar" aria-hidden="true">
-      <div class="eval-label" id="evalLabel">=</div>
-      <div class="eval-fill" id="evalFill" style="height:50%;"></div>
-    </div>
+  <div class="container-wrap">
+    <div class="board-card">
 
-    <!-- main column: board + status + PGN -->
-    <div class="main-col">
-      <div id="boardContainer">
-        <div id="myBoard" style="width:100%; height:100%;"></div>
-      </div>
-      <div id="engineStatus">Engine: initializing...</div>
-
-      <div class="pgn-box" aria-live="polite">
-        <div class="pgn-grid" id="pgnGrid">
-          <!-- grid content populated dynamically -->
+      <!-- left: evaluation bar (vertical ALWAYS) -->
+      <div class="eval-bar" aria-hidden="true">
+        <div class="eval-track" id="evalTrack">
+          <div class="eval-fill" id="evalFill" style="height:50%"></div>
         </div>
+        <div class="eval-label" id="evalLabel">0</div>
+      </div>
+
+      <!-- center: board + captures + PGN -->
+      <div class="board-area">
+        <div class="top-captures">
+          <div class="captures-card" id="whiteCapturesCard">
+            <div style="font-size:13px; color:#444; margin-right:8px;">White captures</div>
+            <div class="captures-list" id="whiteCapturesList"></div>
+            <div class="captures-adv" id="whiteAdvBadge"></div>
+          </div>
+        </div>
+
+        <div id="myBoard"></div>
+        <div id="engineStatus">Engine: initializing...</div>
+
+        <div class="bottom-captures">
+          <div class="captures-card" id="blackCapturesCard">
+            <div style="font-size:13px; color:#444; margin-right:8px;">Black captures</div>
+            <div class="captures-list" id="blackCapturesList"></div>
+            <div class="captures-adv" id="blackAdvBadge"></div>
+          </div>
+        </div>
+
+        <div class="pgn-card" style="width:100%; margin-top:8px;">
+          <div class="pgn-header">
+            <strong>Moves</strong>
+            <div>
+              <button class="small-btn" id="copyPgnBtn">Copy PGN</button>
+              <button class="small-btn secondary" id="resetBtn">Reset</button>
+            </div>
+          </div>
+          <div class="pgn-scroll">
+            <table class="pgn-table" id="pgnTable">
+              <thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead>
+              <tbody id="pgnBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- right: small controls -->
+      <div class="side-controls">
+        <div class="card">
+          <div><strong>Engine</strong></div>
+          <div style="margin-top:6px;">
+            <label style="font-size:13px">Mode</label><br>
+            <select id="engineMode" style="width:100%; margin-top:6px;">
+              <option value="stockfish">Stockfish</option>
+              <option value="minimax">Minimax</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="card">
+          <div><strong>Skill / Movetime</strong></div>
+          <div style="margin-top:6px;">
+            <input type="range" id="skillRange" min="0" max="20" value="20" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div><strong>Info</strong></div>
+          <div style="margin-top:6px; font-size:13px;">
+            <div>Material adv (white - black): <span id="matDiff">0</span></div>
+            <div style="margin-top:6px;">Threads: <span id="hwThreads"></span></div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
 
-  <!-- Sounds (same filenames as your original) -->
+  <!-- Sounds (keep your existing references) -->
   <audio id="moveSound" src="sounds/move.mp3"></audio>
   <audio id="captureSound" src="sounds/capture.mp3"></audio>
   <audio id="promoteSound" src="sounds/promote.mp3"></audio>
@@ -147,14 +174,16 @@
   <audio id="checkSound" src="sounds/check.mp3"></audio>
   <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
 
-  <!-- libs: chessground + chess.js (CDN) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessground/9.2.1/chessground.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
+  <!-- libs -->
+  <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
 
-  <!-- keep your piece resolver & engine code mostly unchanged, adapted to chessground -->
+  <!-- local chess lib -->
+  <script src="js/chess.js"></script>
+
   <script>
   // -------------------------
-  // piece resolver (unchanged logic)
+  // piece resolver (unchanged, but reused for captured icons)
   // -------------------------
   var pieceCandidates = {
     'wK':['pieces/wK.svg','pieces/wKing.svg','pieces/WK.svg'],
@@ -172,13 +201,7 @@
   };
   var pieceImgResolved = {};
 
-  function loadImage(url){ return new Promise(function(resolve,reject){
-    var img=new Image();
-    img.onload=function(){resolve(url)};
-    img.onerror=function(){reject(url)};
-    img.src=url;
-  }); }
-
+  function loadImage(url){ return new Promise(function(resolve,reject){ var img=new Image(); img.onload=function(){resolve(url)}; img.onerror=function(){reject(url)}; img.src=url; }); }
   async function resolvePiece(key, candidates){
     for (var i=0;i<candidates.length;i++){
       try{ var ok = await loadImage(candidates[i]); console.log('Loaded piece', key, '->', candidates[i]); return candidates[i]; }
@@ -187,31 +210,27 @@
     console.warn('No image found for', key, candidates);
     return null;
   }
-
   async function resolveAllPieces(){
     var keys=Object.keys(pieceCandidates);
-    for (var i=0;i<keys.length;i++){
-      pieceImgResolved[keys[i]] = await resolvePiece(keys[i], pieceCandidates[keys[i]]);
-    }
-    // ensure bN fallback etc.
+    for (var i=0;i<keys.length;i++){ pieceImgResolved[keys[i]] = await resolvePiece(keys[i], pieceCandidates[keys[i]]); }
     if (!pieceImgResolved['bN']) {
       if (pieceImgResolved['wN']) pieceImgResolved['bN'] = pieceImgResolved['wN'];
       else { for (var p in pieceImgResolved) if (pieceImgResolved[p]) { pieceImgResolved['bN'] = pieceImgResolved[p]; break; } }
     }
-    var defaultAny=null;
-    for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
+    var defaultAny=null; for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
     for (var k2 in pieceImgResolved) if (!pieceImgResolved[k2]) pieceImgResolved[k2] = defaultAny;
     console.log('Resolved pieces:', pieceImgResolved);
     return pieceImgResolved;
   }
 
   // -------------------------
-  // chess game + engine state
+  // engine (Blob worker) + robust handling (kept, extended to parse info lines)
   // -------------------------
-  var game = new Chess();         // chess.js
-  var globalSum = 0;             // evaluation accumulator used by minimax evaluator
+  var board = null;
+  var game = new Chess();
+  var globalSum = 0;
 
-  var aiMode = 'stockfish';      // 'stockfish' or 'minimax'
+  var aiMode = 'stockfish'; // 'stockfish' or 'minimax'
   var stockfishEngine = null;
   var engineReady = false;
   var engineBusy = false;
@@ -219,9 +238,14 @@
   var engineOpts = {};
   var engineDefaultHandler = null;
 
-  // re-entrancy & input guards
-  var inputLocked = false;
-  var processingMove = false;
+  // captured lists and material points (for display)
+  var capturedByWhite = []; // pieces captured BY white (i.e., black pieces)
+  var capturedByBlack = []; // pieces captured BY black (i.e., white pieces)
+  var materialVals = { p:1, n:3, b:3, r:5, q:9, k:0 };
+
+  // new flags to prevent re-entrancy / overlapping moves
+  var inputLocked = false;       // true while user action/bot thinking/applying move
+  var processingMove = false;    // true inside doMoveLogic
 
   function computeEngineOptions(){
     var hwc = navigator.hardwareConcurrency || 2;
@@ -232,6 +256,8 @@
     var skill = 20;
     engineOpts = {threads:threads, hash:hash, movetime:movetime, skill:skill, isMobile:isMobile, hwc:hwc};
     stockfishMovetime = movetime;
+    // update UI
+    document.getElementById('hwThreads').innerText = threads;
     return engineOpts;
   }
 
@@ -264,7 +290,6 @@
       if (typeof STOCKFISH === 'function') {
         stockfishEngine = STOCKFISH();
       } else {
-        // default cdn; you can replace with a local path if you downloaded stockfish.js
         var cdn = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
         stockfishEngine = createStockfishBlobWorker(cdn);
       }
@@ -280,15 +305,31 @@
       return;
     }
 
-    // default handler: watch for readyok
+    // default handler extended: parse 'info' lines for score
     engineDefaultHandler = function(ev) {
       var line = textFromEvent(ev).trim();
       if (!line) return;
-      console.log('stockfish:', line);
+      // console.log('stockfish:', line);
       if (line.indexOf('readyok') !== -1) {
         engineReady = true;
         document.getElementById('engineStatus').innerText =
-          'Engine: ready (Stockfish, threads ' + engineOpts.threads + ', hash ' + engineOpts.hash + 'MB)';
+          'Engine: ready (Stockfish, skill ' + engineOpts.skill + ', threads ' + engineOpts.threads + ', hash ' + engineOpts.hash + 'MB)';
+      }
+      // parse info lines like: info depth 20 score cp 34 nodes ... or info depth 30 score mate -3
+      if (line.indexOf('info') === 0 && line.indexOf('score') !== -1) {
+        try {
+          // attempt to extract score cp or mate
+          var s = /score\s+(cp|mate)\s+(-?\d+)/.exec(line);
+          if (s) {
+            var type = s[1], val = parseInt(s[2],10);
+            if (type === 'cp') {
+              updateEvaluationFromEngine({cp: val});
+            } else {
+              // mate: positive -> white mating, negative -> black mating
+              updateEvaluationFromEngine({mate: val});
+            }
+          }
+        } catch (e) { console.warn('parse score fail', e); }
       }
     };
 
@@ -305,7 +346,7 @@
     }
   }
 
-  // Safe SF query: capture both info lines (for evaluation bar) and bestmove, restore handler always
+  // Safe SF query: always restore handler & clear busy flag on all paths
   function stockfishBestMove(fen, movetimeMs) {
     return new Promise(function(resolve, reject) {
       if (!stockfishEngine || !engineReady) return reject('engine not ready');
@@ -318,22 +359,7 @@
       var capture = function(ev) {
         var line = textFromEvent(ev).trim();
         if (!line) return;
-        // forward info cp/mate for live eval bar
-        if (line.indexOf('info') === 0 && (line.indexOf('score cp') !== -1 || line.indexOf('score mate') !== -1)) {
-          // attempt to parse cp or mate
-          var m_cp = line.match(/score cp (-?\d+)/);
-          var m_mate = line.match(/score mate (-?\d+)/);
-          if (m_cp) {
-            var cp = parseInt(m_cp[1],10);
-            try { updateEvalFromCP(cp); } catch(e){}
-          } else if (m_mate) {
-            // large advantage when mate in N (positive => white), convert to cp-like scale
-            var mate = parseInt(m_mate[1],10);
-            var cpApprox = mate > 0 ? 10000 - mate : -10000 - mate;
-            try { updateEvalFromCP(cpApprox); } catch(e){}
-          }
-        }
-
+        // parse bestmove
         if (line.indexOf('bestmove') === 0) {
           try {
             var parts = line.split(/\s+/);
@@ -428,7 +454,7 @@
       var m = children[i];
       var pm = game.ugly_move(m);
       var newSum = evaluateBoard(game, pm, sum, color);
-      var [, childVal] = minimax(game, depth-1, alpha, beta, !isMax, newSum, color);
+      var [, childVal] = minimax(game, depth-1, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, !isMax, newSum, color);
       game.undo();
       if (isMax) {
         if (childVal > maxV) { maxV = childVal; best = pm; }
@@ -447,97 +473,82 @@
   }
 
   // -------------------------
-  // UI / chessground init
+  // UI init
   // -------------------------
-  var cg = null;            // chessground instance
-  var defaultPieceUrl = null;
   (async function init() {
     try { await resolveAllPieces(); } catch(e){ console.error('resolve pieces failed', e); }
     initStockfish();
 
-    // pick some default piece if some were missing
-    for (var k in pieceImgResolved) { if (pieceImgResolved[k]) { defaultPieceUrl = pieceImgResolved[k]; break; } }
+    var defaultAny=null; for (var k in pieceImgResolved) if (pieceImgResolved[k]) { defaultAny = pieceImgResolved[k]; break; }
 
-    // pieceTheme for chessground: expects function(piece) -> url
-    function pieceTheme(p) {
-      // chessground piece code like 'wK' or 'bP' (this should match our keys)
-      if (pieceImgResolved && pieceImgResolved[p]) return pieceImgResolved[p];
-      // try normalized
-      var norm = p.replace(/([wb])([prnbqkPRNBQK])/,'$1$2');
-      if (pieceImgResolved[norm]) return pieceImgResolved[norm];
-      return defaultPieceUrl;
+    function pieceTheme(piece) {
+      if (pieceImgResolved && pieceImgResolved[piece]) return pieceImgResolved[piece];
+      return defaultAny;
     }
 
-    // initialize chessground
-    cg = Chessground(document.getElementById('myBoard'), {
-      fen: game.fen(),
-      orientation: 'white',
-      movable: {
-        free: false,
-        color: 'white',
-        // show destinations when dragging
-        dests: null,
-        events: {
-          // called after a legal move was made on the board (orig and dest are in algebraic like 'e2','e4')
-          after: function(orig, dest, metadata) {
-            // guard while engine/bot is processing
-            if (inputLocked) {
-              // revert if input locked
-              cg.set({fen: game.fen()});
-              return;
-            }
-
-            // try to make the move in chess.js
-            var move = game.move({from: orig, to: dest, promotion: 'q'});
-            if (move === null) {
-              // illegal move, revert board
-              playSound('incorrect');
-              cg.set({fen: game.fen()});
-              return;
-            }
-
-            // play effects locally for user move
-            playMoveEffectAndSound(move);
-            flashSquare(orig);
-            flashSquare(dest);
-
-            // lock input and run doMoveLogic (which will apply engine move)
-            inputLocked = true;
-            doMoveLogic(move, orig, dest, true);
-          }
+    var config = {
+      draggable:true,
+      position:'start',
+      pieceTheme:pieceTheme,
+      moveSpeed:250,
+      snapbackSpeed:200,
+      snapSpeed:100,
+      onDragStart: function(source, piece) {
+        // block input when locked
+        if (inputLocked) return false;
+        try {
+          if (game.game_over()) return false;
+          if (!piece) return false;
+          if ((game.turn()==='w' && piece.search(/^b/)!==-1) || (game.turn()==='b' && piece.search(/^w/)!==-1)) return false;
+        } catch (e) {
+          console.warn('onDragStart guard triggered', e);
+          return false;
         }
       },
-      animation: { enabled: true, duration: 240 },
-      highlight: { lastMove: true, check: true },
-      drawable: { enabled: false },
-      movableColor: 'white',
-      // custom piece theme
-      pieceTheme: pieceTheme
+      onDrop: function(source, target) {
+        if (inputLocked) return 'snapback';
+        var move = game.move({from:source, to:target, promotion:'q'});
+        if (move === null) { playSound('incorrect'); return 'snapback'; }
+        // record capture (if any) and lock input and start processing
+        recordCapture(move);
+        inputLocked = true;
+        doMoveLogic(move, source, target, true);
+        return;
+      },
+      onSnapEnd: function() { board.position(game.fen()); }
+    };
+    board = Chessboard('myBoard', config);
+    setTimeout(function(){ $('#myBoard .chessboard-js-piece').css('transition','top 0.25s, left 0.25s'); }, 1000);
+
+    // attach controls
+    document.getElementById('copyPgnBtn').addEventListener('click', function(){
+      try {
+        navigator.clipboard.writeText(game.pgn() || '').then(function(){ alert('PGN copied'); }, function(){ alert('Copy failed'); });
+      } catch (e) { alert('Copy not available'); }
+    });
+    document.getElementById('resetBtn').addEventListener('click', function(){
+      resetGame();
+    });
+    document.getElementById('engineMode').addEventListener('change', function(e){
+      aiMode = e.target.value;
+    });
+    document.getElementById('skillRange').addEventListener('input', function(e){
+      var v = parseInt(e.target.value,10) || 20;
+      engineOpts.skill = v;
+      if (stockfishEngine && engineReady) {
+        try { stockfishEngine.postMessage('setoption name Skill Level value ' + v); } catch(e){}
+      }
     });
 
-    // ensure css transitions for pieces are smooth
-    setTimeout(function(){
-      var el = document.querySelector('#myBoard');
-      if (el) el.style.transition = 'transform 0.18s ease';
-    }, 200);
-    updatePGN(); // initial PGN (empty)
-    updateEvalLabel(0); // neutral start
+    // initial render
+    updatePGNTable();
+    renderCapturedUI();
+    updateEvaluationFromEngine({cp:0}); // initial 0
+
   })();
 
-  // ---------- visuals helpers ----------
-  function flashSquare(square) {
-    try {
-      // chessground squares have data-square attribute on .cg-square elements
-      var q = document.querySelector('#myBoard .cg-board [data-square="' + square + '"]');
-      if (!q) q = document.querySelector('#myBoard [data-square="' + square + '"]');
-      if (!q) return;
-      q.classList.add('square-flash');
-      setTimeout(function(){ q.classList.remove('square-flash'); }, 380);
-    } catch (e) {}
-  }
-
   // -------------------------
-  // sounds/effects/move logic (kept)
+  // sounds/effects/move logic
   // -------------------------
   function playSound(type) {
     var el=null;
@@ -553,33 +564,90 @@
     if (el) { el.currentTime = 0; el.play().catch(()=>{}); }
   }
 
+  function boardMoveEffect(square) {
+    var $sq = $('#myBoard .square-' + square);
+    $sq.addClass('move-effect');
+    setTimeout(function(){ $sq.removeClass('move-effect'); }, 400);
+  }
+
   function playMoveEffectAndSound(move) {
-    if (move.flags && (move.flags.includes('k') || move.flags.includes('q'))) playSound('castling');
-    else if (move.flags && move.flags.includes('p')) playSound('promote');
-    else if (move.flags && (move.flags.includes('c') || move.flags.includes('e'))) playSound('capture');
+    if (move.flags.includes('k') || move.flags.includes('q')) playSound('castling');
+    else if (move.flags.includes('p')) playSound('promote');
+    else if (move.flags.includes('c') || move.flags.includes('e')) playSound('capture');
     else playSound('move');
     if (game.in_checkmate()) playSound('checkmate');
     else if (game.in_check()) playSound('check');
   }
 
-  // core: robust doMoveLogic with locks and guaranteed unlock (adapted to chessground)
+  // record captured pieces from a move object (verbose move)
+  function recordCapture(move) {
+    if (!move) return;
+    if ('captured' in move && move.captured) {
+      // move.color is the side that moved and captured the opponent piece
+      if (move.color === 'w') {
+        // White captured a black piece
+        capturedByWhite.push(move.captured);
+      } else {
+        // Black captured a white piece
+        capturedByBlack.push(move.captured);
+      }
+      // update UI captured lists and material diff
+      renderCapturedUI();
+    }
+  }
+
+  function renderCapturedUI() {
+    // whiteCapturesList shows black pieces that white captured (use black piece images)
+    var wlist = document.getElementById('whiteCapturesList');
+    var blist = document.getElementById('blackCapturesList');
+    wlist.innerHTML = '';
+    blist.innerHTML = '';
+
+    var matWhite = 0, matBlack = 0;
+    capturedByWhite.forEach(function(pc){
+      var key = 'b' + pc.toUpperCase(); // e.g., 'bp' => 'bP'
+      var img = document.createElement('img'); img.src = pieceImgResolved[key] || pieceImgResolved['bP']; img.alt = pc;
+      wlist.appendChild(img);
+      matWhite += (materialVals[pc] || 0);
+    });
+    capturedByBlack.forEach(function(pc){
+      var key = 'w' + pc.toUpperCase();
+      var img = document.createElement('img'); img.src = pieceImgResolved[key] || pieceImgResolved['wP']; img.alt = pc;
+      blist.appendChild(img);
+      matBlack += (materialVals[pc] || 0);
+    });
+
+    // show advantage badges near captures (whiteAdvBadge shows white total captured, blackAdvBadge shows black total captured)
+    document.getElementById('whiteAdvBadge').innerText = (matWhite > 0) ? ('+' + matWhite) : '';
+    document.getElementById('blackAdvBadge').innerText = (matBlack > 0) ? ('+' + matBlack) : '';
+
+    // material diff (white - black)
+    var diff = matWhite - matBlack;
+    document.getElementById('matDiff').innerText = (diff>0? '+'+diff : diff.toString());
+  }
+
+  // core: robust doMoveLogic with locks and guaranteed unlock
   async function doMoveLogic(move, source, target, isDrag) {
     if (processingMove) { console.warn('doMoveLogic re-entry blocked'); return; }
     processingMove = true;
     try {
-      // already did visual effects for user's move
+      playMoveEffectAndSound(move);
+      boardMoveEffect(source);
+      boardMoveEffect(target);
       globalSum = evaluateBoard(game, move, globalSum, 'b');
 
-      // allow small delay for UI to settle, then compute bot move
+      if (!isDrag) board.position(game.fen());
+
+      clearHighlights();
+      selectedSquare = null;
+
+      // small delay for UI
       await new Promise(r => setTimeout(r, 300));
 
       if (game.game_over() || game.turn() !== 'b') {
-        // unlock input (game may be over or not bot's turn)
         inputLocked = false;
         processingMove = false;
-        updatePGN();
-        // ensure board shows current fen
-        cg.set({fen: game.fen()});
+        updatePGNTable();
         return;
       }
 
@@ -612,14 +680,14 @@
               console.log('Applying SF move (validated):', matched);
               var botMove = game.move({ from: matched.from, to: matched.to, promotion: matched.promotion || 'q' });
               if (botMove) {
+                recordCapture(botMove);
                 playMoveEffectAndSound(botMove);
-                flashSquare(botMove.from);
-                flashSquare(botMove.to);
+                boardMoveEffect(botMove.from);
+                boardMoveEffect(botMove.to);
                 globalSum = evaluateBoard(game, botMove, globalSum, 'b');
-                // update board
-                cg.set({fen: game.fen()});
-                updatePGN();
+                board.position(game.fen());
                 inputLocked = false; // unlock after bot move applied
+                updatePGNTable();
                 processingMove = false;
                 return;
               } else {
@@ -638,15 +706,24 @@
 
       // fallback minimax
       if (!game.game_over() && game.turn() === 'b') {
-        var botMove = getBestMoveMinimax(game, 'b', globalSum);
-        if (botMove) {
-          game.move(botMove);
-          playMoveEffectAndSound(botMove);
-          flashSquare(botMove.from);
-          flashSquare(botMove.to);
-          globalSum = evaluateBoard(game, botMove, globalSum, 'b');
-          cg.set({fen: game.fen()});
-          updatePGN();
+        var mmMoveObj = getBestMoveMinimax(game, 'b', globalSum);
+        if (mmMoveObj) {
+          // mmMoveObj is a verbose-like move from minimax; apply carefully
+          var applied = game.move(mmMoveObj);
+          if (!applied) {
+            // try applying by from/to
+            applied = game.move({ from: mmMoveObj.from, to: mmMoveObj.to, promotion: mmMoveObj.promotion || 'q' });
+          }
+          if (applied) {
+            recordCapture(applied);
+            playMoveEffectAndSound(applied);
+            boardMoveEffect(applied.from);
+            boardMoveEffect(applied.to);
+            globalSum = evaluateBoard(game, applied, globalSum, 'b');
+            board.position(game.fen());
+          } else {
+            console.warn('Minimax returned move but could not apply it.', mmMoveObj);
+          }
         } else {
           console.warn('Minimax did not return move — position may be terminal.');
         }
@@ -654,103 +731,141 @@
 
       // unlock input finally
       inputLocked = false;
+      updatePGNTable();
     } finally {
       processingMove = false;
     }
   }
 
   // -------------------------
-  // PGN / UI helpers
+  // click-to-move handlers (respect inputLocked)
   // -------------------------
-  function updatePGN() {
-    var moves = game.history();
-    var grid = document.getElementById('pgnGrid');
-    grid.innerHTML = '';
-    for (var i = 0; i < moves.length; i += 2) {
-      var num = Math.floor(i / 2) + 1;
-      var white = moves[i] || '';
-      var black = moves[i + 1] || '';
-      var row = document.createElement('div');
-      row.className = 'pgn-row';
-      // move number
-      var mn = document.createElement('div');
-      mn.className = 'pgn-movenum';
-      mn.textContent = num + '.';
-      grid.appendChild(mn);
+  var selectedSquare = null;
+  var legalTargets = [];
 
-      // white
-      var wdiv = document.createElement('div');
-      wdiv.className = 'pgn-move w';
-      wdiv.textContent = white;
-      (function(mnum, halfIndex){ wdiv.onclick = function(){ seekToMove(mnum, 'w'); }; })(num, i);
-      grid.appendChild(wdiv);
+  function clearHighlights() { $('#myBoard .square-55d63').removeClass('highlight-click highlight-target'); }
+  function highlightSquares(squares, cls){ squares.forEach(function(sq){ $('#myBoard .square-' + sq).addClass(cls); }); }
 
-      // black
-      var bdiv = document.createElement('div');
-      bdiv.className = 'pgn-move b';
-      bdiv.textContent = black;
-      (function(mnum, halfIndex){ bdiv.onclick = function(){ seekToMove(mnum, 'b'); }; })(num, i+1);
-      grid.appendChild(bdiv);
-    }
-  }
-
-  function seekToMove(moveNumber, color) {
-    // reconstruct fen up to the chosen ply
-    var history = game.history({ verbose: true });
-    // make a new game and apply moves up to desired ply
-    var g2 = new Chess();
-    var plyIndex = (moveNumber - 1) * 2 + (color === 'b' ? 1 : 0);
-    for (var i = 0; i <= plyIndex && i < history.length; i++) {
-      var m = history[i];
-      g2.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' });
-    }
-    // set board to that fen
-    cg.set({fen: g2.fen()});
-  }
-
-  // -------------------------
-  // Eval bar helpers
-  // -------------------------
-  function updateEvalFromCP(cp) {
-    // cp >0 means white advantage; scale to percentage 0..100 for eval-fill height
-    // Use a soft-scaling so huge CP doesn't saturate entirely immediately
-    var clamp = function(v, a, b){ return Math.max(a, Math.min(b, v)); };
-    // map cp to -1500..+1500 range
-    var capped = clamp(cp, -1500, 1500);
-    // convert to fraction: 0 for -1500, 1 for +1500
-    var frac = (capped + 1500) / 3000;
-    var percent = Math.round(frac * 100);
-    // set bar height; white advantage means higher fill (bottom to top)
-    var fillEl = document.getElementById('evalFill');
-    if (fillEl) fillEl.style.height = percent + '%';
-    // label
-    updateEvalLabel(cp);
-  }
-
-  function updateEvalLabel(cp) {
-    var label = document.getElementById('evalLabel');
-    if (!label) return;
-    if (cp === 0) label.textContent = '=';
-    else if (cp > 0) {
-      if (cp > 500) label.textContent = '+' + Math.round(cp);
-      else label.textContent = '+' + cp;
+  $('#myBoard').on('click', '.square-55d63', function() {
+    if (inputLocked) return; // ignore clicks while locked
+    var square = $(this).attr('data-square');
+    if (game.game_over()) return;
+    if (!selectedSquare) {
+      var piece = game.get(square);
+      if (!piece || piece.color !== game.turn()) return;
+      selectedSquare = square;
+      clearHighlights();
+      $('#myBoard .square-' + square).addClass('highlight-click');
+      var moves = game.moves({ square: square, verbose: true });
+      legalTargets = moves.map(function(m){ return m.to; });
+      highlightSquares(legalTargets, 'highlight-target');
     } else {
-      label.textContent = '' + cp;
+      if (square === selectedSquare) { selectedSquare = null; legalTargets = []; clearHighlights(); return; }
+      if (legalTargets.includes(square)) {
+        var move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+        if (move === null) { playSound('incorrect'); clearHighlights(); selectedSquare=null; legalTargets=[]; board.position(game.fen()); return; }
+        recordCapture(move);
+        // lock input and process
+        inputLocked = true;
+        doMoveLogic(move, selectedSquare, square, false);
+        return;
+      }
+      var piece2 = game.get(square);
+      if (piece2 && piece2.color === game.turn()) {
+        selectedSquare = square;
+        clearHighlights();
+        $('#myBoard .square-' + square).addClass('highlight-click');
+        var moves = game.moves({ square: square, verbose: true });
+        legalTargets = moves.map(function(m){ return m.to; });
+        highlightSquares(legalTargets, 'highlight-target');
+        return;
+      }
+      selectedSquare = null; legalTargets = []; clearHighlights();
     }
-  }
-
-  // -------------------------
-  // small defensive UI: if user clicks outside board, re-clear highlights (not necessary with chessground)
-  // -------------------------
-  document.addEventListener('click', function(e){
-    // clicking on PGN moves is handled; nothing else needed for chessground
   });
 
+  $(document).on('click', function(e){ if ($(e.target).closest('#myBoard').length === 0) { clearHighlights(); selectedSquare=null; legalTargets=[]; } });
+  $('#myBoard').on('mousedown', '.square-55d63', function(){ clearHighlights(); selectedSquare=null; legalTargets=[]; });
+
   // -------------------------
-  // graceful fallback: if engine not available, allow playing vs minimax only
+  // PGN table updates
   // -------------------------
-  // engineReady flag set in initStockfish()
+  function updatePGNTable() {
+    var body = document.getElementById('pgnBody');
+    body.innerHTML = '';
+    var history = game.history(); // SAN array, e.g., ["e4", "e5", "Nf3", ...]
+    var rows = Math.ceil(history.length / 2);
+    for (var i=0;i<rows;i++){
+      var moveNum = i+1;
+      var whiteMove = history[i*2] || '';
+      var blackMove = history[i*2 + 1] || '';
+      var tr = document.createElement('tr');
+      var tdNum = document.createElement('td');
+      tdNum.innerText = moveNum;
+      var tdW = document.createElement('td');
+      tdW.innerText = whiteMove;
+      var tdB = document.createElement('td');
+      tdB.innerText = blackMove;
+      tr.appendChild(tdNum); tr.appendChild(tdW); tr.appendChild(tdB);
+      body.appendChild(tr);
+    }
+    // scroll to bottom
+    var scrollEl = document.querySelector('.pgn-scroll');
+    if (scrollEl) { scrollEl.scrollTop = scrollEl.scrollHeight; }
+  }
+
+  // -------------------------
+  // evaluation bar helper
+  // -------------------------
+  function updateEvaluationFromEngine(obj) {
+    // obj = { cp: number } or { mate: number }
+    var fill = document.getElementById('evalFill');
+    var label = document.getElementById('evalLabel');
+    if (!fill || !label) return;
+    if (obj.mate !== undefined) {
+      // mate value: positive -> white mating, negative -> black mating
+      var sign = obj.mate > 0 ? '+' : '';
+      label.innerHTML = 'M' + sign + obj.mate;
+      fill.style.height = (obj.mate > 0 ? '100%' : '0%');
+      if (obj.mate > 0) { fill.classList.remove('black-adv'); } else { fill.classList.add('black-adv'); }
+      return;
+    }
+    var cp = obj.cp || 0;
+    // Stockfish cp is from White's perspective. Map cp to vertical fill percent (0..100)
+    // simple linear mapping: percent = 50 + cp/10, clamped
+    var percent = 50 + (cp / 10);
+    if (percent > 100) percent = 100;
+    if (percent < 0) percent = 0;
+    fill.style.height = percent + '%';
+    // color: if percent >=50 -> white advantage (green), else black advantage (red)
+    if (percent >= 50) fill.classList.remove('black-adv'); else fill.classList.add('black-adv');
+    var sign = (cp > 0 ? '+' : '');
+    label.innerText = sign + cp + ' cp';
+  }
+
+  // fallback to use our current globalSum (converted) if engine not available
+  function updateEvalFromGlobalSum() {
+    // globalSum uses 'weights' where pawn=100 etc. Convert to centipawns roughly
+    var cp = Math.round(globalSum); // keep as-is (hundreds)
+    updateEvaluationFromEngine({cp: cp});
+  }
+
+  // -------------------------
+  // reset / helper
+  // -------------------------
+  function resetGame() {
+    game.reset();
+    board.position('start');
+    capturedByWhite = [];
+    capturedByBlack = [];
+    globalSum = 0;
+    renderCapturedUI();
+    updatePGNTable();
+    updateEvaluationFromEngine({cp:0});
+    inputLocked = false;
+    processingMove = false;
+  }
 
   </script>
 </body>
-    </html>
+  </html>
