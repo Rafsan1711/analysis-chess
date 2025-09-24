@@ -2,170 +2,176 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Chess Bot + Stockfish — Stable (with Eval Bar, PGN & Captures)</title>
+  <title>Chess Bot + Stockfish — Stable (Improved Eval, PGN, Captures)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
   <style>
     /* ---------- base ---------- */
-    body { background:#fafafa; font-family: system-ui, Arial, sans-serif; margin:0; padding:0; }
-    .container-wrap { max-width:1100px; margin:18px auto; padding:12px; }
-    .board-card { background:white; border-radius:12px; box-shadow: 0 6px 18px rgba(0,0,0,0.06); padding:12px; display:flex; gap:12px; align-items:flex-start; }
-
-    /* ---------- eval bar (always vertical!) ---------- */
-    .eval-bar {
-      width:48px; /* fixed narrow vertical bar */
-      min-width:48px;
-      height:420px; /* matches board visual height area */
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      justify-content:center;
-      padding:6px 4px;
-      border-radius:10px;
-      background:linear-gradient(180deg,#f6f6f6,#efefef);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+    :root{
+      --bg: #fbfdff;
+      --card: #ffffff;
+      --muted: #6b7280;
+      --accent: linear-gradient(180deg,#56ccf2,#2f80ed);
+      --good: #22c55e;
+      --bad: #ef4444;
     }
-    .eval-track { width:18px; height:86%; background:#e6e6e6; border-radius:9px; position:relative; overflow:hidden; }
+    body { background:var(--bg); font-family: Inter, system-ui, Arial, sans-serif; margin:0; padding:18px; color:#0f172a; }
+    .wrap { max-width:1100px; margin:0 auto; }
+
+    /* layout */
+    .main-row { display:flex; gap:14px; align-items:flex-start; }
+    .left-col { width:72px; display:flex; justify-content:center; }
+    .center-col { flex:1; display:flex; flex-direction:column; gap:12px; }
+    .right-col { width:260px; min-width:200px; }
+
+    /* board card */
+    .card { background:var(--card); border-radius:12px; box-shadow: 0 10px 30px rgba(16,24,40,0.06); padding:12px; }
+    .board-card { display:flex; gap:12px; align-items:flex-start; padding:16px; }
+
+    /* eval bar (strictly vertical) */
+    .eval-wrap { width:56px; display:flex; flex-direction:column; align-items:center; gap:8px; }
+    .eval-track { width:18px; height:420px; background:#f1f5f9; border-radius:12px; position:relative; box-shadow: inset 0 2px 6px rgba(0,0,0,0.04); overflow:hidden; }
     .eval-fill {
-      position:absolute; bottom:0; left:0; right:0;
-      height:50%; /* updated by JS */
-      background:linear-gradient(180deg,#2ecc71,#27ae60); /* white advantage color (green) */
-      transition:height 300ms ease;
+      position:absolute; left:0; right:0; bottom:0;
+      height:50%;
+      border-radius:12px 12px 0 0;
+      transition:height 300ms ease, background 300ms ease;
+      background: linear-gradient(180deg,#2ecc71,#16a34a);
     }
-    .eval-fill.black-adv { background: linear-gradient(0deg,#e74c3c,#c0392b); } /* black advantage */
-    .eval-label { font-size:12px; margin-top:8px; text-align:center; transform:rotate(0); }
-    .eval-mate { font-weight:700; color:#111; }
+    .eval-fill.black { background: linear-gradient(0deg,#f97316,#ef4444); } /* black advantage */
+    .eval-label { font-size:13px; color:var(--muted); text-align:center; width:72px; word-break:normal; }
 
-    /* ---------- main board area ---------- */
-    .board-area { flex:1; display:flex; flex-direction:column; align-items:center; gap:8px; }
-    .top-captures, .bottom-captures { width:100%; display:flex; justify-content:center; gap:12px; align-items:center; flex-wrap:wrap; }
-    .captures-card { background:#f8f9fb; border-radius:8px; padding:6px 8px; min-height:36px; display:flex; gap:6px; align-items:center; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
-    .captures-list img { width:20px; height:20px; object-fit:contain; display:inline-block; margin-right:2px; }
-    .captures-adv { font-size:13px; font-weight:700; margin-left:8px; color:#111; }
+    /* board area */
+    .board-area { display:flex; flex-direction:column; align-items:center; gap:8px; }
+    #myBoard { width:100%; max-width:520px; min-width:260px; min-height:340px; }
+    #engineStatus { font-size:13px; color:var(--muted); margin-top:4px; text-align:center; }
 
-    /* board sizing (keeps your earlier min widths) */
-    #myBoard { width:100%; max-width:420px; min-width:260px; min-height:320px; margin:0 auto; }
+    /* captures */
+    .captures-row { display:flex; justify-content:space-between; width:100%; gap:12px; }
+    .captures-card { flex:1; display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:10px; background:#f8fafc; border:1px solid rgba(15,23,42,0.03); }
+    .captures-list img { width:20px; height:20px; margin-right:6px; display:inline-block; object-fit:contain; }
+    .captures-adv { font-weight:700; font-size:13px; color:#0f172a; margin-left:auto; }
 
-    /* engine status area */
-    #engineStatus { font-size:13px; color:#333; margin-top:6px; text-align:center; }
+    /* PGN table */
+    .pgn-card { width:100%; padding:12px; border-radius:10px; background:linear-gradient(180deg,#ffffff,#fbfdff); box-shadow:0 6px 18px rgba(2,6,23,0.04); }
+    .pgn-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; }
+    .pgn-title { font-weight:700; font-size:15px; color:#0b1220; }
+    .pgn-controls { display:flex; gap:8px; align-items:center; }
+    .btn { border:0; padding:8px 10px; border-radius:8px; background:#0f172a; color:white; cursor:pointer; font-size:13px; }
+    .btn.ghost { background:transparent; color:var(--muted); border:1px solid rgba(2,6,23,0.06); }
+    .pgn-table-wrap { max-height:260px; overflow:auto; border-radius:8px; border:1px solid rgba(2,6,23,0.04); }
+    table.pgn-table { width:100%; border-collapse:collapse; min-width:420px; }
+    table.pgn-table thead th { position:sticky; top:0; background:#fff; padding:10px 12px; text-align:left; font-size:13px; color:var(--muted); border-bottom:1px solid rgba(2,6,23,0.04); z-index:2; }
+    table.pgn-table td { padding:10px 12px; border-bottom:1px dashed rgba(2,6,23,0.03); font-size:14px; color:#0b1220; }
+    table.pgn-table tr:nth-child(even){ background: rgba(15,23,42,0.02); }
+    td.move-num { width:48px; color:var(--muted); font-weight:700; }
 
-    /* ---------- right side small column ---------- */
-    .side-controls { width:160px; min-width:140px; display:flex; flex-direction:column; gap:8px; align-items:flex-start; }
-    .side-controls .card { width:100%; background:#fafafa; padding:8px; border-radius:8px; box-shadow:0 1px 2px rgba(0,0,0,0.03); font-size:13px; }
-    .small-btn { border:0; background:#2d9cdb; color:white; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:13px; }
-    .small-btn.secondary { background:#6c757d; }
+    /* right column controls */
+    .side-panel { display:flex; flex-direction:column; gap:10px; }
+    .panel-item { padding:10px; border-radius:8px; background:#fff; border:1px solid rgba(2,6,23,0.04); }
+    .small { font-size:13px; color:var(--muted); }
 
-    /* ---------- PGN table (responsive) ---------- */
-    .pgn-card { margin-top:10px; border-radius:10px; padding:8px; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.04); }
-    .pgn-header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; }
-    .pgn-table { width:100%; border-collapse:collapse; }
-    .pgn-table th, .pgn-table td { padding:6px 8px; border-bottom:1px solid #f1f3f5; font-size:14px; }
-    .pgn-table th { text-align:left; font-size:13px; color:#666; }
-    .pgn-scroll { max-height:220px; overflow:auto; }
-
-    /* ---------- small responsive tweaks ---------- */
-    @media (max-width:760px) {
-      .board-card { flex-direction:row; gap:8px; align-items:flex-start; }
-      .side-controls { display:none; } /* hide right column on narrow */
-      .eval-bar { height:360px; }
-      #myBoard { max-width:320px; }
-    }
-
-    /* Keep evaluation bar always vertical - do NOT switch to horizontal on small screens. */
-    /* (we intentionally avoid rotating the layout into columns for eval) */
-
-    /* highlight classes reused */
-    .highlight-click { box-shadow:0 0 8px 4px orange inset; }
-    .highlight-target { box-shadow:0 0 4px 2px green inset; }
-    .move-effect { animation: boardMoveEffect 0.4s; }
-    @keyframes boardMoveEffect { 0% { box-shadow:0 0 10px 4px #33dd33 inset;} 100% { box-shadow:none; } }
+    /* highlights and piece transitions */
+    .highlight-click { box-shadow:0 0 8px 4px rgba(249,115,22,0.22) inset; }
+    .highlight-target { box-shadow:0 0 4px 2px rgba(34,197,94,0.18) inset; }
+    .move-effect { animation: boardMoveEffect 0.38s; }
+    @keyframes boardMoveEffect { 0% { box-shadow:0 0 10px 6px rgba(51,221,51,0.14) inset;} 100% { box-shadow:none; } }
     .chessboard-js-piece { transition: top 0.25s, left 0.25s; z-index: 10; }
+
+    /* responsive keep eval vertical */
+    @media (max-width:900px){
+      .main-row { flex-direction:column; gap:10px; }
+      .left-col { width:100%; display:flex; justify-content:center; }
+      .right-col { width:100%; }
+      .eval-track { height:300px; }
+    }
   </style>
 </head>
 <body>
-  <div class="container-wrap">
-    <div class="board-card">
-
-      <!-- left: evaluation bar (vertical ALWAYS) -->
-      <div class="eval-bar" aria-hidden="true">
-        <div class="eval-track" id="evalTrack">
-          <div class="eval-fill" id="evalFill" style="height:50%"></div>
+  <div class="wrap">
+    <div class="main-row">
+      <!-- Evaluation bar (strict vertical) -->
+      <div class="left-col">
+        <div class="eval-wrap card" aria-hidden="true">
+          <div style="font-size:13px; font-weight:700; color:#0b1220;">Eval</div>
+          <div class="eval-track" id="evalTrack">
+            <div class="eval-fill" id="evalFill" style="height:50%"></div>
+          </div>
+          <div class="eval-label" id="evalLabel">0 cp</div>
         </div>
-        <div class="eval-label" id="evalLabel">0</div>
       </div>
 
-      <!-- center: board + captures + PGN -->
-      <div class="board-area">
-        <div class="top-captures">
-          <div class="captures-card" id="whiteCapturesCard">
-            <div style="font-size:13px; color:#444; margin-right:8px;">White captures</div>
-            <div class="captures-list" id="whiteCapturesList"></div>
-            <div class="captures-adv" id="whiteAdvBadge"></div>
+      <!-- Center: board + captures + pgn -->
+      <div class="center-col">
+        <div class="card board-card" style="align-items:flex-start;">
+          <div style="flex:1; display:flex; flex-direction:column; gap:8px; width:100%; align-items:center;">
+            <div class="captures-row" style="width:100%;">
+              <div class="captures-card" id="whiteCapturesCard">
+                <div style="font-size:13px; color:#0b1220; min-width:80px;">White captured</div>
+                <div class="captures-list" id="whiteCapturesList"></div>
+                <div class="captures-adv" id="whiteAdvBadge"></div>
+              </div>
+              <div class="captures-card" id="blackCapturesCard">
+                <div style="font-size:13px; color:#0b1220; min-width:80px;">Black captured</div>
+                <div class="captures-list" id="blackCapturesList"></div>
+                <div class="captures-adv" id="blackAdvBadge"></div>
+              </div>
+            </div>
+
+            <div id="myBoard"></div>
+            <div id="engineStatus">Engine: initializing...</div>
           </div>
         </div>
 
-        <div id="myBoard"></div>
-        <div id="engineStatus">Engine: initializing...</div>
-
-        <div class="bottom-captures">
-          <div class="captures-card" id="blackCapturesCard">
-            <div style="font-size:13px; color:#444; margin-right:8px;">Black captures</div>
-            <div class="captures-list" id="blackCapturesList"></div>
-            <div class="captures-adv" id="blackAdvBadge"></div>
-          </div>
-        </div>
-
-        <div class="pgn-card" style="width:100%; margin-top:8px;">
+        <div class="pgn-card card">
           <div class="pgn-header">
-            <strong>Moves</strong>
-            <div>
-              <button class="small-btn" id="copyPgnBtn">Copy PGN</button>
-              <button class="small-btn secondary" id="resetBtn">Reset</button>
+            <div class="pgn-title">Moves (PGN)</div>
+            <div class="pgn-controls">
+              <button class="btn" id="copyPgnBtn">Copy PGN</button>
+              <button class="btn ghost" id="resetBtn">Reset</button>
             </div>
           </div>
-          <div class="pgn-scroll">
+          <div class="pgn-table-wrap">
             <table class="pgn-table" id="pgnTable">
-              <thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead>
+              <thead>
+                <tr>
+                  <th style="width:56px">#</th>
+                  <th>White</th>
+                  <th>Black</th>
+                </tr>
+              </thead>
               <tbody id="pgnBody"></tbody>
             </table>
           </div>
         </div>
-
       </div>
 
-      <!-- right: small controls -->
-      <div class="side-controls">
-        <div class="card">
-          <div><strong>Engine</strong></div>
-          <div style="margin-top:6px;">
-            <label style="font-size:13px">Mode</label><br>
-            <select id="engineMode" style="width:100%; margin-top:6px;">
-              <option value="stockfish">Stockfish</option>
-              <option value="minimax">Minimax</option>
-            </select>
+      <!-- Right: small controls -->
+      <div class="right-col">
+        <div class="side-panel">
+          <div class="panel-item">
+            <div style="font-weight:700;">Engine</div>
+            <div style="margin-top:8px;">
+              <select id="engineMode" style="width:100%; padding:8px; border-radius:6px; border:1px solid rgba(2,6,23,0.06);">
+                <option value="stockfish">Stockfish</option>
+                <option value="minimax">Minimax</option>
+              </select>
+            </div>
+            <div style="margin-top:8px;" class="small">Threads: <span id="hwThreads">-</span></div>
           </div>
-        </div>
 
-        <div class="card">
-          <div><strong>Skill / Movetime</strong></div>
-          <div style="margin-top:6px;">
-            <input type="range" id="skillRange" min="0" max="20" value="20" />
+          <div class="panel-item">
+            <div style="font-weight:700;">Info</div>
+            <div style="margin-top:8px;" class="small">Material diff (white - black): <span id="matDiff">0</span></div>
+            <div style="margin-top:6px;" class="small">Stockfish movetime (ms): <span id="movetimeDisplay">800</span></div>
           </div>
-        </div>
 
-        <div class="card">
-          <div><strong>Info</strong></div>
-          <div style="margin-top:6px; font-size:13px;">
-            <div>Material adv (white - black): <span id="matDiff">0</span></div>
-            <div style="margin-top:6px;">Threads: <span id="hwThreads"></span></div>
-          </div>
         </div>
-
       </div>
     </div>
   </div>
 
-  <!-- Sounds (keep your existing references) -->
+  <!-- Sounds -->
   <audio id="moveSound" src="sounds/move.mp3"></audio>
   <audio id="captureSound" src="sounds/capture.mp3"></audio>
   <audio id="promoteSound" src="sounds/promote.mp3"></audio>
@@ -174,16 +180,14 @@
   <audio id="checkSound" src="sounds/check.mp3"></audio>
   <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
 
-  <!-- libs -->
+  <!-- libs (unchanged) -->
   <script src="https://code.jquery.com/jquery-3.5.1.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
-
-  <!-- local chess lib -->
   <script src="js/chess.js"></script>
 
   <script>
   // -------------------------
-  // piece resolver (unchanged, but reused for captured icons)
+  // piece resolver (unchanged)
   // -------------------------
   var pieceCandidates = {
     'wK':['pieces/wK.svg','pieces/wKing.svg','pieces/WK.svg'],
@@ -224,7 +228,7 @@
   }
 
   // -------------------------
-  // engine (Blob worker) + robust handling (kept, extended to parse info lines)
+  // engine (Blob worker) + robust handling
   // -------------------------
   var board = null;
   var game = new Chess();
@@ -238,9 +242,9 @@
   var engineOpts = {};
   var engineDefaultHandler = null;
 
-  // captured lists and material points (for display)
-  var capturedByWhite = []; // pieces captured BY white (i.e., black pieces)
-  var capturedByBlack = []; // pieces captured BY black (i.e., white pieces)
+  // captured lists and material points
+  var capturedByWhite = []; // black pieces captured by white
+  var capturedByBlack = []; // white pieces captured by black
   var materialVals = { p:1, n:3, b:3, r:5, q:9, k:0 };
 
   // new flags to prevent re-entrancy / overlapping moves
@@ -256,8 +260,8 @@
     var skill = 20;
     engineOpts = {threads:threads, hash:hash, movetime:movetime, skill:skill, isMobile:isMobile, hwc:hwc};
     stockfishMovetime = movetime;
-    // update UI
     document.getElementById('hwThreads').innerText = threads;
+    document.getElementById('movetimeDisplay').innerText = stockfishMovetime;
     return engineOpts;
   }
 
@@ -313,21 +317,16 @@
       if (line.indexOf('readyok') !== -1) {
         engineReady = true;
         document.getElementById('engineStatus').innerText =
-          'Engine: ready (Stockfish, skill ' + engineOpts.skill + ', threads ' + engineOpts.threads + ', hash ' + engineOpts.hash + 'MB)';
+          'Engine: ready (Stockfish, threads ' + engineOpts.threads + ', hash ' + engineOpts.hash + 'MB)';
       }
-      // parse info lines like: info depth 20 score cp 34 nodes ... or info depth 30 score mate -3
+      // parse info lines like: info depth 20 score cp 34 or info depth 30 score mate -3
       if (line.indexOf('info') === 0 && line.indexOf('score') !== -1) {
         try {
-          // attempt to extract score cp or mate
           var s = /score\s+(cp|mate)\s+(-?\d+)/.exec(line);
           if (s) {
             var type = s[1], val = parseInt(s[2],10);
-            if (type === 'cp') {
-              updateEvaluationFromEngine({cp: val});
-            } else {
-              // mate: positive -> white mating, negative -> black mating
-              updateEvaluationFromEngine({mate: val});
-            }
+            if (type === 'cp') updateEvaluationFromEngine({cp: val});
+            else updateEvaluationFromEngine({mate: val});
           }
         } catch (e) { console.warn('parse score fail', e); }
       }
@@ -346,7 +345,7 @@
     }
   }
 
-  // Safe SF query: always restore handler & clear busy flag on all paths
+  // Safe SF query: capture info lines during the search (so eval bar moves), and capture bestmove
   function stockfishBestMove(fen, movetimeMs) {
     return new Promise(function(resolve, reject) {
       if (!stockfishEngine || !engineReady) return reject('engine not ready');
@@ -356,10 +355,22 @@
       var prevHandler = stockfishEngine.onmessage;
       var timeoutId = null;
 
+      // handler will parse info lines and bestmove
       var capture = function(ev) {
         var line = textFromEvent(ev).trim();
         if (!line) return;
-        // parse bestmove
+        // parse info score to update eval bar live
+        if (line.indexOf('info') === 0 && line.indexOf('score') !== -1) {
+          try {
+            var s = /score\s+(cp|mate)\s+(-?\d+)/.exec(line);
+            if (s) {
+              var type = s[1], val = parseInt(s[2],10);
+              if (type === 'cp') updateEvaluationFromEngine({cp: val});
+              else updateEvaluationFromEngine({mate: val});
+            }
+          } catch(e){}
+        }
+        // pick bestmove
         if (line.indexOf('bestmove') === 0) {
           try {
             var parts = line.split(/\s+/);
@@ -380,6 +391,7 @@
       try {
         stockfishEngine.onmessage = capture;
         stockfishEngine.postMessage('position fen ' + fen);
+        // use movetime; also ask for info during search (stockfish will emit info)
         stockfishEngine.postMessage('go movetime ' + parseInt(movetimeMs,10));
       } catch (e) {
         try { stockfishEngine.onmessage = prevHandler; } catch(ignore) {}
@@ -387,12 +399,12 @@
         return reject(e);
       }
 
-      // safety timeout (forces fallback)
+      // safety timeout
       timeoutId = setTimeout(function() {
         try { stockfishEngine.onmessage = prevHandler; } catch(e) {}
         engineBusy = false;
         reject('timeout');
-      }, Math.max(8000, movetimeMs + 4000));
+      }, Math.max(9000, movetimeMs + 5000));
     });
   }
 
@@ -400,7 +412,7 @@
   // minimax fallback (kept)
   // -------------------------
   var weights = { p:100,n:280,b:320,r:479,q:929,k:60000,k_e:60000 };
-  var pst_w = {
+  var pst_w = { /* same PST tables as before (omitted here for brevity in code view) */ 
     p: [[100,100,100,100,105,100,100,100],[78,83,86,73,102,82,85,90],[7,29,21,44,40,31,44,7],[-17,16,-2,15,14,0,15,-13],[-26,3,10,9,6,1,0,-23],[-22,9,5,-11,-10,-2,3,-19],[-31,8,-7,-37,-36,-14,3,-31],[0,0,0,0,0,0,0,0]],
     n: [[-66,-53,-75,-75,-10,-55,-58,-70],[-3,-6,100,-36,4,62,-4,-14],[10,67,1,74,73,27,62,-2],[24,24,45,37,33,41,25,17],[-1,5,31,21,22,35,2,0],[-18,10,13,22,18,15,11,-14],[-23,-15,2,0,2,0,-23,-20],[-74,-23,-26,-24,-19,-35,-22,-69]],
     b: [[-59,-78,-82,-76,-23,-107,-37,-50],[-11,20,35,-42,-39,31,2,-22],[-9,39,-32,41,52,-10,28,-14],[25,17,20,34,26,25,15,10],[13,10,17,23,17,16,0,7],[14,25,24,15,8,25,20,15],[19,20,11,6,7,6,20,16],[-7,2,-15,-12,-14,-15,-10,-10]],
@@ -454,7 +466,7 @@
       var m = children[i];
       var pm = game.ugly_move(m);
       var newSum = evaluateBoard(game, pm, sum, color);
-      var [, childVal] = minimax(game, depth-1, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, !isMax, newSum, color);
+      var [, childVal] = minimax(game, depth-1, alpha, beta, !isMax, newSum, color);
       game.undo();
       if (isMax) {
         if (childVal > maxV) { maxV = childVal; best = pm; }
@@ -494,7 +506,6 @@
       snapbackSpeed:200,
       snapSpeed:100,
       onDragStart: function(source, piece) {
-        // block input when locked
         if (inputLocked) return false;
         try {
           if (game.game_over()) return false;
@@ -509,8 +520,9 @@
         if (inputLocked) return 'snapback';
         var move = game.move({from:source, to:target, promotion:'q'});
         if (move === null) { playSound('incorrect'); return 'snapback'; }
-        // record capture (if any) and lock input and start processing
+        // record capture (if any)
         recordCapture(move);
+        // lock input and start processing
         inputLocked = true;
         doMoveLogic(move, source, target, true);
         return;
@@ -520,7 +532,7 @@
     board = Chessboard('myBoard', config);
     setTimeout(function(){ $('#myBoard .chessboard-js-piece').css('transition','top 0.25s, left 0.25s'); }, 1000);
 
-    // attach controls
+    // controls
     document.getElementById('copyPgnBtn').addEventListener('click', function(){
       try {
         navigator.clipboard.writeText(game.pgn() || '').then(function(){ alert('PGN copied'); }, function(){ alert('Copy failed'); });
@@ -532,19 +544,11 @@
     document.getElementById('engineMode').addEventListener('change', function(e){
       aiMode = e.target.value;
     });
-    document.getElementById('skillRange').addEventListener('input', function(e){
-      var v = parseInt(e.target.value,10) || 20;
-      engineOpts.skill = v;
-      if (stockfishEngine && engineReady) {
-        try { stockfishEngine.postMessage('setoption name Skill Level value ' + v); } catch(e){}
-      }
-    });
 
     // initial render
     updatePGNTable();
     renderCapturedUI();
-    updateEvaluationFromEngine({cp:0}); // initial 0
-
+    updateEvaluationFromEngine({cp:0});
   })();
 
   // -------------------------
@@ -583,12 +587,9 @@
   function recordCapture(move) {
     if (!move) return;
     if ('captured' in move && move.captured) {
-      // move.color is the side that moved and captured the opponent piece
       if (move.color === 'w') {
-        // White captured a black piece
         capturedByWhite.push(move.captured);
       } else {
-        // Black captured a white piece
         capturedByBlack.push(move.captured);
       }
       // update UI captured lists and material diff
@@ -597,7 +598,6 @@
   }
 
   function renderCapturedUI() {
-    // whiteCapturesList shows black pieces that white captured (use black piece images)
     var wlist = document.getElementById('whiteCapturesList');
     var blist = document.getElementById('blackCapturesList');
     wlist.innerHTML = '';
@@ -605,7 +605,7 @@
 
     var matWhite = 0, matBlack = 0;
     capturedByWhite.forEach(function(pc){
-      var key = 'b' + pc.toUpperCase(); // e.g., 'bp' => 'bP'
+      var key = 'b' + pc.toUpperCase();
       var img = document.createElement('img'); img.src = pieceImgResolved[key] || pieceImgResolved['bP']; img.alt = pc;
       wlist.appendChild(img);
       matWhite += (materialVals[pc] || 0);
@@ -617,11 +617,20 @@
       matBlack += (materialVals[pc] || 0);
     });
 
-    // show advantage badges near captures (whiteAdvBadge shows white total captured, blackAdvBadge shows black total captured)
-    document.getElementById('whiteAdvBadge').innerText = (matWhite > 0) ? ('+' + matWhite) : '';
-    document.getElementById('blackAdvBadge').innerText = (matBlack > 0) ? ('+' + matBlack) : '';
+    // Show +N only on the side which currently has MORE captured material
+    var whiteBadge = document.getElementById('whiteAdvBadge');
+    var blackBadge = document.getElementById('blackAdvBadge');
+    if (matWhite > matBlack) {
+      whiteBadge.innerText = '+' + (matWhite - matBlack);
+      blackBadge.innerText = '';
+    } else if (matBlack > matWhite) {
+      blackBadge.innerText = '+' + (matBlack - matWhite);
+      whiteBadge.innerText = '';
+    } else {
+      whiteBadge.innerText = ''; blackBadge.innerText = '';
+    }
 
-    // material diff (white - black)
+    // material diff (white - black) for info panel
     var diff = matWhite - matBlack;
     document.getElementById('matDiff').innerText = (diff>0? '+'+diff : diff.toString());
   }
@@ -641,7 +650,7 @@
       clearHighlights();
       selectedSquare = null;
 
-      // small delay for UI
+      // allow small delay for UI to settle, then compute bot move
       await new Promise(r => setTimeout(r, 300));
 
       if (game.game_over() || game.turn() !== 'b') {
@@ -680,6 +689,7 @@
               console.log('Applying SF move (validated):', matched);
               var botMove = game.move({ from: matched.from, to: matched.to, promotion: matched.promotion || 'q' });
               if (botMove) {
+                // record capture for bot move if any
                 recordCapture(botMove);
                 playMoveEffectAndSound(botMove);
                 boardMoveEffect(botMove.from);
@@ -708,12 +718,8 @@
       if (!game.game_over() && game.turn() === 'b') {
         var mmMoveObj = getBestMoveMinimax(game, 'b', globalSum);
         if (mmMoveObj) {
-          // mmMoveObj is a verbose-like move from minimax; apply carefully
           var applied = game.move(mmMoveObj);
-          if (!applied) {
-            // try applying by from/to
-            applied = game.move({ from: mmMoveObj.from, to: mmMoveObj.to, promotion: mmMoveObj.promotion || 'q' });
-          }
+          if (!applied) applied = game.move({ from: mmMoveObj.from, to: mmMoveObj.to, promotion: mmMoveObj.promotion || 'q' });
           if (applied) {
             recordCapture(applied);
             playMoveEffectAndSound(applied);
@@ -793,25 +799,21 @@
   function updatePGNTable() {
     var body = document.getElementById('pgnBody');
     body.innerHTML = '';
-    var history = game.history(); // SAN array, e.g., ["e4", "e5", "Nf3", ...]
+    var history = game.history(); // SAN array
     var rows = Math.ceil(history.length / 2);
     for (var i=0;i<rows;i++){
       var moveNum = i+1;
       var whiteMove = history[i*2] || '';
       var blackMove = history[i*2 + 1] || '';
       var tr = document.createElement('tr');
-      var tdNum = document.createElement('td');
-      tdNum.innerText = moveNum;
-      var tdW = document.createElement('td');
-      tdW.innerText = whiteMove;
-      var tdB = document.createElement('td');
-      tdB.innerText = blackMove;
+      var tdNum = document.createElement('td'); tdNum.className = 'move-num'; tdNum.innerText = moveNum + '.';
+      var tdW = document.createElement('td'); tdW.innerText = whiteMove;
+      var tdB = document.createElement('td'); tdB.innerText = blackMove;
       tr.appendChild(tdNum); tr.appendChild(tdW); tr.appendChild(tdB);
       body.appendChild(tr);
     }
-    // scroll to bottom
-    var scrollEl = document.querySelector('.pgn-scroll');
-    if (scrollEl) { scrollEl.scrollTop = scrollEl.scrollHeight; }
+    var scroll = document.querySelector('.pgn-table-wrap');
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
   }
 
   // -------------------------
@@ -823,30 +825,28 @@
     var label = document.getElementById('evalLabel');
     if (!fill || !label) return;
     if (obj.mate !== undefined) {
-      // mate value: positive -> white mating, negative -> black mating
-      var sign = obj.mate > 0 ? '+' : '';
-      label.innerHTML = 'M' + sign + obj.mate;
-      fill.style.height = (obj.mate > 0 ? '100%' : '0%');
-      if (obj.mate > 0) { fill.classList.remove('black-adv'); } else { fill.classList.add('black-adv'); }
+      // show mate prominently
+      var m = obj.mate;
+      var sign = (m>0? '+':'');
+      label.innerText = 'M' + sign + m;
+      fill.style.height = (m>0? '100%' : '0%');
+      if (m>0) fill.classList.remove('black'); else fill.classList.add('black');
       return;
     }
     var cp = obj.cp || 0;
-    // Stockfish cp is from White's perspective. Map cp to vertical fill percent (0..100)
-    // simple linear mapping: percent = 50 + cp/10, clamped
-    var percent = 50 + (cp / 10);
+    // map cp to percent with soft scaling
+    // cp range -1000 .. +1000 maps to 0..100, center 0 => 50%
+    var percent = 50 + (cp / 20); // gentler scaling
     if (percent > 100) percent = 100;
     if (percent < 0) percent = 0;
     fill.style.height = percent + '%';
-    // color: if percent >=50 -> white advantage (green), else black advantage (red)
-    if (percent >= 50) fill.classList.remove('black-adv'); else fill.classList.add('black-adv');
+    if (percent >= 50) fill.classList.remove('black'); else fill.classList.add('black');
     var sign = (cp > 0 ? '+' : '');
     label.innerText = sign + cp + ' cp';
   }
 
-  // fallback to use our current globalSum (converted) if engine not available
   function updateEvalFromGlobalSum() {
-    // globalSum uses 'weights' where pawn=100 etc. Convert to centipawns roughly
-    var cp = Math.round(globalSum); // keep as-is (hundreds)
+    var cp = Math.round(globalSum / 10); // convert internal weights to approx centipawns
     updateEvaluationFromEngine({cp: cp});
   }
 
@@ -866,6 +866,13 @@
     processingMove = false;
   }
 
+  // expose some debug on window for testing
+  window._debug = {
+    updateEvalFromGlobalSum: updateEvalFromGlobalSum,
+    resetGame: resetGame,
+    capturedByWhite: capturedByWhite,
+    capturedByBlack: capturedByBlack
+  };
   </script>
 </body>
-  </html>
+</html>
