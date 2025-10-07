@@ -649,12 +649,10 @@ Example:
   }
 
   // ========================
-  // Stockfish Engine with Queue System
+  // Stockfish Engine - SIMPLE VERSION
   // ========================
   var stockfishEngine = null;
   var engineReady = false;
-  var analysisQueue = [];
-  var isProcessingQueue = false;
 
   function createStockfishBlobWorker(cdnUrl) {
     try {
@@ -674,111 +672,74 @@ Example:
       
       stockfishEngine.onmessage = function(e) {
         var line = e.data;
+        console.log('SF:', line);
         if (line.indexOf('readyok') !== -1) {
           engineReady = true;
-          console.log('Stockfish ready');
-          document.getElementById('statusBar').textContent = 'Engine ready';
+          document.getElementById('statusBar').textContent = 'Engine ready - You can now make moves or import PGN';
         }
       };
       
       stockfishEngine.postMessage('uci');
       stockfishEngine.postMessage('setoption name Threads value 2');
-      stockfishEngine.postMessage('setoption name Hash value 128');
-      stockfishEngine.postMessage('setoption name Skill Level value 20');
+      stockfishEngine.postMessage('setoption name Hash value 64');
       stockfishEngine.postMessage('isready');
     } catch (e) {
       console.error('Stockfish init failed:', e);
     }
   }
 
-  // Queue-based evaluation to prevent "engine busy" errors
-  function evaluatePositionDetailed(fen, depth) {
+  // SIMPLE evaluation function
+  function evaluatePosition(fen) {
     return new Promise((resolve, reject) => {
       if (!stockfishEngine || !engineReady) {
         return reject('engine not ready');
       }
       
-      analysisQueue.push({ fen: fen, depth: depth, resolve: resolve, reject: reject });
-      processQueue();
-    });
-  }
-
-  async function processQueue() {
-    if (isProcessingQueue || analysisQueue.length === 0) return;
-    
-    isProcessingQueue = true;
-    var task = analysisQueue.shift();
-    
-    try {
-      var result = await runAnalysis(task.fen, task.depth);
-      task.resolve(result);
-    } catch (e) {
-      task.reject(e);
-    }
-    
-    isProcessingQueue = false;
-    
-    // Process next in queue
-    if (analysisQueue.length > 0) {
-      setTimeout(processQueue, 50);
-    }
-  }
-
-  function runAnalysis(fen, depth) {
-    return new Promise((resolve, reject) => {
       var timeout = setTimeout(() => {
         reject('timeout');
-      }, 12000);
+      }, 8000);
       
-      var result = { score: 0, bestMove: null, pvLine: [] };
-      var lastDepth = 0;
+      var bestScore = 0;
+      var bestMove = null;
       
-      var handler = function(e) {
+      stockfishEngine.onmessage = function(e) {
         var line = e.data;
         
-        if (line.indexOf('info depth') !== -1) {
-          var depthMatch = line.match(/depth (\d+)/);
-          if (depthMatch) lastDepth = parseInt(depthMatch[1]);
-          
-          if (line.indexOf('pv ') !== -1) {
-            var pvMatch = line.match(/pv\s+(\S+)/);
-            if (pvMatch) result.pvLine = [pvMatch[1]];
+        // Get score
+        if (line.indexOf('score cp') !== -1) {
+          var match = line.match(/score cp (-?\d+)/);
+          if (match) {
+            bestScore = parseInt(match[1]);
           }
-          
-          if (line.indexOf('score cp') !== -1) {
-            var match = line.match(/score cp (-?\d+)/);
-            if (match) result.score = parseInt(match[1]);
-          } else if (line.indexOf('score mate') !== -1) {
-            var match = line.match(/score mate (-?\d+)/);
-            if (match) {
-              var mateIn = parseInt(match[1]);
-              result.score = mateIn > 0 ? 10000 + mateIn : -10000 - mateIn;
-            }
+        } else if (line.indexOf('score mate') !== -1) {
+          var match = line.match(/score mate (-?\d+)/);
+          if (match) {
+            var mateIn = parseInt(match[1]);
+            bestScore = mateIn > 0 ? 10000 : -10000;
           }
         }
         
+        // Get best move
+        if (line.indexOf(' pv ') !== -1) {
+          var pvMatch = line.match(/pv\s+(\S+)/);
+          if (pvMatch) {
+            bestMove = pvMatch[1];
+          }
+        }
+        
+        // Done
         if (line.indexOf('bestmove') === 0) {
           clearTimeout(timeout);
-          stockfishEngine.onmessage = null;
           var parts = line.split(' ');
-          result.bestMove = parts[1];
-          result.depth = lastDepth;
-          resolve(result);
+          if (!bestMove) bestMove = parts[1];
+          console.log('Eval result:', bestScore, 'Best:', bestMove);
+          resolve({ score: bestScore, bestMove: bestMove });
         }
       };
       
-      stockfishEngine.onmessage = handler;
       stockfishEngine.postMessage('position fen ' + fen);
-      stockfishEngine.postMessage('go depth ' + depth);
+      stockfishEngine.postMessage('go depth 12');
     });
-  }
-
-  // Material value calculator
-  var pieceValues = { 'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 0 };
-  
-  function calculateMaterialLoss(move) {
-    if (!move.captured) return 0;
-    return pieceValues[move.captured] || 0;
   }
 
   // ========================
@@ -789,7 +750,7 @@ Example:
   var moveHistory = [];
   var currentMoveIndex = -1;
   var analysisData = {};
-  var gameMetadata = { white: 'White', black: 'Black', whiteElo: '', blackElo: '', event: '', date: '' };
+  var gameMetadata = { white: 'White', black: 'Black', whiteElo: '', blackElo: '' };
   var scrollLocked = false;
 
   // ========================
@@ -842,17 +803,10 @@ Example:
     currentMoveIndex = moveHistory.length - 1;
     updatePGNTable();
     
-    // Auto-analyze the move immediately
-    var moveIndex = moveHistory.length - 1;
-    if (engineReady) {
-      analyzeMove(moveIndex).then(function() {
-        console.log('Move analyzed successfully');
-      }).catch(function(e) {
-        console.error('Analysis failed:', e);
-      });
-    } else {
-      document.getElementById('statusBar').textContent = 'Engine not ready yet';
-    }
+    // Auto-analyze
+    setTimeout(function() {
+      analyzeMove(moveHistory.length - 1);
+    }, 100);
   }
 
   function onSnapEnd() {
@@ -860,7 +814,7 @@ Example:
   }
 
   // ========================
-  // Enhanced Move Analysis
+  // SIMPLE Move Analysis
   // ========================
   async function analyzeMove(moveIndex) {
     if (!engineReady) {
@@ -868,11 +822,10 @@ Example:
       return;
     }
     
-    console.log('Starting analysis for move', moveIndex);
     document.getElementById('statusBar').innerHTML = '<span class="analyzing">Analyzing move ' + (moveIndex + 1) + '...</span>';
     
     try {
-      // Build position before move
+      // Build position BEFORE move
       var tempGame = new Chess();
       for (var i = 0; i < moveIndex; i++) {
         tempGame.move(moveHistory[i]);
@@ -881,96 +834,81 @@ Example:
       var prevFen = tempGame.fen();
       var move = moveHistory[moveIndex];
       
-      console.log('Evaluating position before move:', prevFen);
+      // Evaluate BEFORE move
+      var prevResult = await evaluatePosition(prevFen);
+      console.log('Before move', moveIndex, ':', prevResult);
       
-      // Get evaluation before move (depth 16)
-      var prevEval = await evaluatePositionDetailed(prevFen, 16);
-      
-      console.log('Prev eval:', prevEval);
-      
-      // Apply the move
+      // Make the move
       tempGame.move(move);
       var currFen = tempGame.fen();
       
-      console.log('Evaluating position after move:', currFen);
+      // Evaluate AFTER move
+      var currResult = await evaluatePosition(currFen);
+      console.log('After move', moveIndex, ':', currResult);
       
-      // Get evaluation after move (depth 16)
-      var currEval = await evaluatePositionDetailed(currFen, 16);
+      // Calculate eval drop (WHITE perspective always)
+      var prevEval = prevResult.score;
+      var currEval = -currResult.score; // Flip because turn changed
       
-      console.log('Curr eval:', currEval);
-      
-      // Calculate if this was the best move
-      var movingColor = move.color;
-      var actualMoveNotation = move.from + move.to + (move.promotion || '');
-      var wasBestMove = (prevEval.bestMove === actualMoveNotation);
-      
-      // Calculate evaluation drop from moving player's perspective
-      var evalBefore, evalAfter;
-      if (movingColor === 'w') {
-        evalBefore = prevEval.score;
-        evalAfter = -currEval.score;
-      } else {
-        evalBefore = -prevEval.score;
-        evalAfter = currEval.score;
+      // If BLACK moved, flip both
+      if (move.color === 'b') {
+        prevEval = -prevEval;
+        currEval = -currEval;
       }
       
-      var evalDrop = evalBefore - evalAfter;
+      var evalDrop = prevEval - currEval;
       
-      console.log('Eval drop:', evalDrop, 'Was best move:', wasBestMove);
+      console.log('Move', moveIndex, 'evalDrop:', evalDrop);
       
-      // Material loss
-      var materialLoss = calculateMaterialLoss(move);
+      // Check if best move
+      var actualMove = move.from + move.to + (move.promotion || '');
+      var wasBestMove = (prevResult.bestMove === actualMove);
       
-      // Enhanced classification
-      var classification = classifyMoveEnhanced(evalDrop, materialLoss, wasBestMove, moveIndex, move);
+      // Classify
+      var classification = classifyMove(evalDrop, wasBestMove, moveIndex);
       
       console.log('Classification:', classification);
       
+      // Store
       analysisData[moveIndex] = {
-        prevEval: prevEval.score,
-        currEval: currEval.score,
+        prevEval: prevResult.score,
+        currEval: currResult.score,
         evalDrop: evalDrop,
-        bestMove: prevEval.bestMove,
-        wasBestMove: wasBestMove,
-        materialLoss: materialLoss,
+        bestMove: prevResult.bestMove,
         classification: classification
       };
       
+      // Update UI
       updatePGNTable();
-      updateEvalBar(currEval.score);
-      document.getElementById('statusBar').textContent = 'Move ' + (moveIndex + 1) + ' analyzed: ' + classification;
+      updateEvalBar(currResult.score);
+      document.getElementById('statusBar').textContent = 'Move ' + (moveIndex + 1) + ': ' + classification + ' (drop: ' + evalDrop + 'cp)';
       
-      return analysisData[moveIndex];
     } catch (e) {
-      console.error('Analysis error for move', moveIndex, ':', e);
+      console.error('Analysis error:', e);
       document.getElementById('statusBar').textContent = 'Analysis error: ' + e;
-      throw e;
     }
   }
 
-  function classifyMoveEnhanced(evalDrop, materialLoss, wasBestMove, moveIndex, move) {
-    // Book moves (first 8 moves)
+  function classifyMove(evalDrop, wasBestMove, moveIndex) {
+    // First 8 moves = book
     if (moveIndex < 8) return 'book';
     
-    // Brilliant: Sacrifice that gains significant advantage
-    if (materialLoss >= 300 && evalDrop < -30) return 'brilliant';
+    // Best move or very small loss
+    if (wasBestMove || Math.abs(evalDrop) <= 15) return 'best';
     
-    // Best move: Engine's choice or within 10cp
-    if (wasBestMove || evalDrop <= 10) return 'best';
-    
-    // Great: Strong move, losing less than 30cp
+    // Great
     if (evalDrop <= 30) return 'great';
     
-    // Good: Decent move, losing 30-50cp
-    if (evalDrop <= 50) return 'good';
+    // Good
+    if (evalDrop <= 60) return 'good';
     
-    // Inaccuracy: Minor mistake, losing 50-150cp
+    // Inaccuracy
     if (evalDrop <= 150) return 'inaccuracy';
     
-    // Mistake: Clear error, losing 150-300cp
+    // Mistake
     if (evalDrop <= 300) return 'mistake';
     
-    // Blunder: Major mistake, losing 300+ cp
+    // Blunder
     return 'blunder';
   }
 
@@ -1148,15 +1086,12 @@ Example:
       moveHistory = [];
       currentMoveIndex = -1;
       analysisData = {};
-      analysisQueue = [];
       
       gameMetadata = {
         white: parsed.metadata.white || 'White',
         black: parsed.metadata.black || 'Black',
         whiteElo: parsed.metadata.whiteelo || '',
-        blackElo: parsed.metadata.blackelo || '',
-        event: parsed.metadata.event || '',
-        date: parsed.metadata.date || ''
+        blackElo: parsed.metadata.blackelo || ''
       };
       
       var whiteText = gameMetadata.white;
@@ -1182,7 +1117,7 @@ Example:
       updatePGNTable();
       updateEvalBar(0);
       
-      document.getElementById('statusBar').textContent = 'PGN loaded: ' + moveHistory.length + ' moves. Click Analyze to start.';
+      document.getElementById('statusBar').textContent = 'PGN loaded: ' + moveHistory.length + ' moves. Click Analyze button!';
       document.getElementById('pgnModal').style.display = 'none';
       
     } catch (e) {
@@ -1289,19 +1224,17 @@ Example:
     
     for (var i = 0; i < moveHistory.length; i++) {
       if (!analysisData[i]) {
-        try {
-          await analyzeMove(i);
-          var progress = ((i + 1) / moveHistory.length) * 100;
-          progressFill.style.width = progress + '%';
-        } catch (e) {
-          console.error('Error analyzing move', i, ':', e);
-        }
+        await analyzeMove(i);
+        var progress = ((i + 1) / moveHistory.length) * 100;
+        progressFill.style.width = progress + '%';
+        
+        // Small delay between moves
+        await new Promise(r => setTimeout(r, 500));
       }
     }
     
     progressFill.style.width = '0%';
-    document.getElementById('statusBar').textContent = 'Full analysis complete! Check move icons.';
-    updatePGNTable();
+    document.getElementById('statusBar').textContent = 'Full analysis complete!';
     btn.disabled = false;
   };
 
@@ -1359,4 +1292,4 @@ Example:
   
   </script>
 </body>
-  </html>
+</html>
