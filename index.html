@@ -15,6 +15,11 @@
       padding: 20px;
     }
     
+    body.scroll-locked {
+      overflow: hidden;
+      touch-action: none;
+    }
+    
     .container {
       max-width: 1400px;
       margin: 0 auto;
@@ -147,6 +152,10 @@
       opacity: 0.4;
       cursor: not-allowed;
       transform: none;
+    }
+    
+    .controls button.toggle-active {
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
     }
     
     /* PGN Section */
@@ -490,6 +499,11 @@
               <path d="M8 3l4 4H4l4-4zM8 13l-4-4h8l-4 4z"/>
             </svg>
           </button>
+          <button id="lockScrollBtn" title="Lock Scroll (for mobile drag)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 1a3 3 0 013 3v2h1a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1h1V4a3 3 0 013-3zm0 1a2 2 0 00-2 2v2h4V4a2 2 0 00-2-2z"/>
+            </svg>
+          </button>
           <button id="analyzeBtn" title="Analyze All Moves">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <circle cx="7" cy="7" r="5" stroke="currentColor" fill="none" stroke-width="2"/>
@@ -635,11 +649,12 @@ Example:
   }
 
   // ========================
-  // Stockfish Engine
+  // Stockfish Engine with Queue System
   // ========================
   var stockfishEngine = null;
   var engineReady = false;
-  var engineBusy = false;
+  var analysisQueue = [];
+  var isProcessingQueue = false;
 
   function createStockfishBlobWorker(cdnUrl) {
     try {
@@ -662,6 +677,7 @@ Example:
         if (line.indexOf('readyok') !== -1) {
           engineReady = true;
           console.log('Stockfish ready');
+          document.getElementById('statusBar').textContent = 'Engine ready';
         }
       };
       
@@ -675,36 +691,60 @@ Example:
     }
   }
 
-  // Enhanced evaluation with best move detection
-  function evaluatePositionDetailed(fen, depth = 18) {
+  // Queue-based evaluation to prevent "engine busy" errors
+  function evaluatePositionDetailed(fen, depth) {
     return new Promise((resolve, reject) => {
-      if (!stockfishEngine || !engineReady) return reject('engine not ready');
-      if (engineBusy) return reject('engine busy');
+      if (!stockfishEngine || !engineReady) {
+        return reject('engine not ready');
+      }
       
-      engineBusy = true;
+      analysisQueue.push({ fen: fen, depth: depth, resolve: resolve, reject: reject });
+      processQueue();
+    });
+  }
+
+  async function processQueue() {
+    if (isProcessingQueue || analysisQueue.length === 0) return;
+    
+    isProcessingQueue = true;
+    var task = analysisQueue.shift();
+    
+    try {
+      var result = await runAnalysis(task.fen, task.depth);
+      task.resolve(result);
+    } catch (e) {
+      task.reject(e);
+    }
+    
+    isProcessingQueue = false;
+    
+    // Process next in queue
+    if (analysisQueue.length > 0) {
+      setTimeout(processQueue, 50);
+    }
+  }
+
+  function runAnalysis(fen, depth) {
+    return new Promise((resolve, reject) => {
       var timeout = setTimeout(() => {
-        engineBusy = false;
         reject('timeout');
-      }, 15000);
+      }, 12000);
       
       var result = { score: 0, bestMove: null, pvLine: [] };
       var lastDepth = 0;
       
-      stockfishEngine.onmessage = function(e) {
+      var handler = function(e) {
         var line = e.data;
         
-        // Extract depth info
         if (line.indexOf('info depth') !== -1) {
           var depthMatch = line.match(/depth (\d+)/);
           if (depthMatch) lastDepth = parseInt(depthMatch[1]);
           
-          // Get best move from PV
           if (line.indexOf('pv ') !== -1) {
-            var pvMatch = line.match(/pv (.+?)(?:\s|$)/);
-            if (pvMatch) result.pvLine = pvMatch[1].split(' ');
+            var pvMatch = line.match(/pv\s+(\S+)/);
+            if (pvMatch) result.pvLine = [pvMatch[1]];
           }
           
-          // Get score
           if (line.indexOf('score cp') !== -1) {
             var match = line.match(/score cp (-?\d+)/);
             if (match) result.score = parseInt(match[1]);
@@ -717,10 +757,9 @@ Example:
           }
         }
         
-        // Wait for bestmove
         if (line.indexOf('bestmove') === 0) {
           clearTimeout(timeout);
-          engineBusy = false;
+          stockfishEngine.onmessage = null;
           var parts = line.split(' ');
           result.bestMove = parts[1];
           result.depth = lastDepth;
@@ -728,6 +767,7 @@ Example:
         }
       };
       
+      stockfishEngine.onmessage = handler;
       stockfishEngine.postMessage('position fen ' + fen);
       stockfishEngine.postMessage('go depth ' + depth);
     });
@@ -750,6 +790,7 @@ Example:
   var currentMoveIndex = -1;
   var analysisData = {};
   var gameMetadata = { white: 'White', black: 'Black', whiteElo: '', blackElo: '', event: '', date: '' };
+  var scrollLocked = false;
 
   // ========================
   // Board Init
@@ -800,7 +841,9 @@ Example:
     moveHistory.push(move);
     currentMoveIndex = moveHistory.length - 1;
     updatePGNTable();
-    analyzeMove(moveHistory.length - 1);
+    
+    // Auto-analyze the move
+    queueMoveAnalysis(moveHistory.length - 1);
   }
 
   function onSnapEnd() {
@@ -810,8 +853,19 @@ Example:
   // ========================
   // Enhanced Move Analysis
   // ========================
+  function queueMoveAnalysis(moveIndex) {
+    if (!engineReady) {
+      console.log('Engine not ready, skipping analysis');
+      return;
+    }
+    
+    analyzeMove(moveIndex).catch(function(e) {
+      console.error('Analysis failed:', e);
+    });
+  }
+
   async function analyzeMove(moveIndex) {
-    if (!engineReady) return;
+    if (!engineReady) throw new Error('engine not ready');
     
     document.getElementById('statusBar').innerHTML = '<span class="analyzing">Analyzing move ' + (moveIndex + 1) + '...</span>';
     
@@ -825,15 +879,15 @@ Example:
       var prevFen = tempGame.fen();
       var move = moveHistory[moveIndex];
       
-      // Get evaluation before move
-      var prevEval = await evaluatePositionDetailed(prevFen, 18);
+      // Get evaluation before move (depth 16)
+      var prevEval = await evaluatePositionDetailed(prevFen, 16);
       
       // Apply the move
       tempGame.move(move);
       var currFen = tempGame.fen();
       
-      // Get evaluation after move
-      var currEval = await evaluatePositionDetailed(currFen, 18);
+      // Get evaluation after move (depth 16)
+      var currEval = await evaluatePositionDetailed(currFen, 16);
       
       // Calculate if this was the best move
       var movingColor = move.color;
@@ -844,9 +898,9 @@ Example:
       var evalBefore, evalAfter;
       if (movingColor === 'w') {
         evalBefore = prevEval.score;
-        evalAfter = -currEval.score; // Flip because it's now black's turn
+        evalAfter = -currEval.score;
       } else {
-        evalBefore = -prevEval.score; // Flip for black
+        evalBefore = -prevEval.score;
         evalAfter = currEval.score;
       }
       
@@ -870,34 +924,37 @@ Example:
       
       updatePGNTable();
       updateEvalBar(currEval.score);
-      document.getElementById('statusBar').textContent = 'Analysis complete';
+      document.getElementById('statusBar').textContent = 'Move ' + (moveIndex + 1) + ' analyzed: ' + classification;
+      
+      return analysisData[moveIndex];
     } catch (e) {
       console.error('Analysis error:', e);
-      document.getElementById('statusBar').textContent = 'Analysis failed - ' + e;
+      document.getElementById('statusBar').textContent = 'Analysis paused';
+      throw e;
     }
   }
 
   function classifyMoveEnhanced(evalDrop, materialLoss, wasBestMove, moveIndex, move) {
-    // Book moves (first 8 moves typically)
+    // Book moves (first 8 moves)
     if (moveIndex < 8) return 'book';
     
-    // Brilliant: Sacrifice that gains advantage
-    if (materialLoss >= 300 && evalDrop < -20) return 'brilliant';
+    // Brilliant: Sacrifice that gains significant advantage
+    if (materialLoss >= 300 && evalDrop < -30) return 'brilliant';
     
-    // Best move: Within 10 centipawns of engine choice
+    // Best move: Engine's choice or within 10cp
     if (wasBestMove || evalDrop <= 10) return 'best';
     
     // Great: Strong move, losing less than 30cp
-    if (evalDrop < 30) return 'great';
+    if (evalDrop <= 30) return 'great';
     
     // Good: Decent move, losing 30-50cp
-    if (evalDrop < 50) return 'good';
+    if (evalDrop <= 50) return 'good';
     
     // Inaccuracy: Minor mistake, losing 50-150cp
-    if (evalDrop < 150) return 'inaccuracy';
+    if (evalDrop <= 150) return 'inaccuracy';
     
     // Mistake: Clear error, losing 150-300cp
-    if (evalDrop < 300) return 'mistake';
+    if (evalDrop <= 300) return 'mistake';
     
     // Blunder: Major mistake, losing 300+ cp
     return 'blunder';
@@ -1046,7 +1103,6 @@ Example:
     var metadata = {};
     var moveText = '';
     
-    // Parse headers
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i].trim();
       if (line.startsWith('[')) {
@@ -1059,12 +1115,11 @@ Example:
       }
     }
     
-    // Clean move text
-    moveText = moveText.replace(/\{[^}]*\}/g, ''); // Remove comments
-    moveText = moveText.replace(/\([^)]*\)/g, ''); // Remove variations
-    moveText = moveText.replace(/[!?]+/g, ''); // Remove annotations
-    moveText = moveText.replace(/\d+-\d+/g, ''); // Remove result
-    moveText = moveText.replace(/\d+\./g, ''); // Remove move numbers
+    moveText = moveText.replace(/\{[^}]*\}/g, '');
+    moveText = moveText.replace(/\([^)]*\)/g, '');
+    moveText = moveText.replace(/[!?]+/g, '');
+    moveText = moveText.replace(/\d+-\d+/g, '');
+    moveText = moveText.replace(/\d+\./g, '');
     
     var moves = moveText.trim().split(/\s+/).filter(function(m) { return m.length > 0; });
     
@@ -1075,13 +1130,12 @@ Example:
     try {
       var parsed = parsePGN(pgnText);
       
-      // Reset game
       game.reset();
       moveHistory = [];
       currentMoveIndex = -1;
       analysisData = {};
+      analysisQueue = [];
       
-      // Load metadata
       gameMetadata = {
         white: parsed.metadata.white || 'White',
         black: parsed.metadata.black || 'Black',
@@ -1091,7 +1145,6 @@ Example:
         date: parsed.metadata.date || ''
       };
       
-      // Update player names
       var whiteText = gameMetadata.white;
       if (gameMetadata.whiteElo) whiteText += ' <span class="player-elo">(' + gameMetadata.whiteElo + ')</span>';
       document.getElementById('whitePlayer').innerHTML = '<span class="player-name">' + whiteText + '</span>';
@@ -1100,7 +1153,6 @@ Example:
       if (gameMetadata.blackElo) blackText += ' <span class="player-elo">(' + gameMetadata.blackElo + ')</span>';
       document.getElementById('blackPlayer').innerHTML = '<span class="player-name">' + blackText + '</span>';
       
-      // Load moves
       for (var i = 0; i < parsed.moves.length; i++) {
         var move = game.move(parsed.moves[i]);
         if (move) {
@@ -1116,9 +1168,7 @@ Example:
       updatePGNTable();
       updateEvalBar(0);
       
-      document.getElementById('statusBar').textContent = 'PGN loaded: ' + moveHistory.length + ' moves';
-      
-      // Close modal
+      document.getElementById('statusBar').textContent = 'PGN loaded: ' + moveHistory.length + ' moves. Click Analyze to start.';
       document.getElementById('pgnModal').style.display = 'none';
       
     } catch (e) {
@@ -1192,6 +1242,20 @@ Example:
     board.flip();
   };
 
+  // Scroll Lock Toggle
+  document.getElementById('lockScrollBtn').onclick = function() {
+    scrollLocked = !scrollLocked;
+    if (scrollLocked) {
+      document.body.classList.add('scroll-locked');
+      this.classList.add('toggle-active');
+      document.getElementById('statusBar').textContent = 'Scroll locked - easier mobile dragging';
+    } else {
+      document.body.classList.remove('scroll-locked');
+      this.classList.remove('toggle-active');
+      document.getElementById('statusBar').textContent = 'Scroll unlocked';
+    }
+  };
+
   document.getElementById('analyzeBtn').onclick = async function() {
     if (moveHistory.length === 0) {
       alert('No moves to analyze!');
@@ -1211,15 +1275,18 @@ Example:
     
     for (var i = 0; i < moveHistory.length; i++) {
       if (!analysisData[i]) {
-        await analyzeMove(i);
-        var progress = ((i + 1) / moveHistory.length) * 100;
-        progressFill.style.width = progress + '%';
-        await new Promise(r => setTimeout(r, 50));
+        try {
+          await analyzeMove(i);
+          var progress = ((i + 1) / moveHistory.length) * 100;
+          progressFill.style.width = progress + '%';
+        } catch (e) {
+          console.error('Error analyzing move', i, ':', e);
+        }
       }
     }
     
     progressFill.style.width = '0%';
-    document.getElementById('statusBar').textContent = 'Full analysis complete!';
+    document.getElementById('statusBar').textContent = 'Full analysis complete! Check move icons.';
     updatePGNTable();
     btn.disabled = false;
   };
