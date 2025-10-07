@@ -842,8 +842,17 @@ Example:
     currentMoveIndex = moveHistory.length - 1;
     updatePGNTable();
     
-    // Auto-analyze the move
-    queueMoveAnalysis(moveHistory.length - 1);
+    // Auto-analyze the move immediately
+    var moveIndex = moveHistory.length - 1;
+    if (engineReady) {
+      analyzeMove(moveIndex).then(function() {
+        console.log('Move analyzed successfully');
+      }).catch(function(e) {
+        console.error('Analysis failed:', e);
+      });
+    } else {
+      document.getElementById('statusBar').textContent = 'Engine not ready yet';
+    }
   }
 
   function onSnapEnd() {
@@ -853,20 +862,13 @@ Example:
   // ========================
   // Enhanced Move Analysis
   // ========================
-  function queueMoveAnalysis(moveIndex) {
+  async function analyzeMove(moveIndex) {
     if (!engineReady) {
-      console.log('Engine not ready, skipping analysis');
+      console.log('Engine not ready');
       return;
     }
     
-    analyzeMove(moveIndex).catch(function(e) {
-      console.error('Analysis failed:', e);
-    });
-  }
-
-  async function analyzeMove(moveIndex) {
-    if (!engineReady) throw new Error('engine not ready');
-    
+    console.log('Starting analysis for move', moveIndex);
     document.getElementById('statusBar').innerHTML = '<span class="analyzing">Analyzing move ' + (moveIndex + 1) + '...</span>';
     
     try {
@@ -879,15 +881,23 @@ Example:
       var prevFen = tempGame.fen();
       var move = moveHistory[moveIndex];
       
+      console.log('Evaluating position before move:', prevFen);
+      
       // Get evaluation before move (depth 16)
       var prevEval = await evaluatePositionDetailed(prevFen, 16);
+      
+      console.log('Prev eval:', prevEval);
       
       // Apply the move
       tempGame.move(move);
       var currFen = tempGame.fen();
       
+      console.log('Evaluating position after move:', currFen);
+      
       // Get evaluation after move (depth 16)
       var currEval = await evaluatePositionDetailed(currFen, 16);
+      
+      console.log('Curr eval:', currEval);
       
       // Calculate if this was the best move
       var movingColor = move.color;
@@ -906,11 +916,15 @@ Example:
       
       var evalDrop = evalBefore - evalAfter;
       
+      console.log('Eval drop:', evalDrop, 'Was best move:', wasBestMove);
+      
       // Material loss
       var materialLoss = calculateMaterialLoss(move);
       
       // Enhanced classification
       var classification = classifyMoveEnhanced(evalDrop, materialLoss, wasBestMove, moveIndex, move);
+      
+      console.log('Classification:', classification);
       
       analysisData[moveIndex] = {
         prevEval: prevEval.score,
@@ -928,8 +942,8 @@ Example:
       
       return analysisData[moveIndex];
     } catch (e) {
-      console.error('Analysis error:', e);
-      document.getElementById('statusBar').textContent = 'Analysis paused';
+      console.error('Analysis error for move', moveIndex, ':', e);
+      document.getElementById('statusBar').textContent = 'Analysis error: ' + e;
       throw e;
     }
   }
