@@ -1,122 +1,84 @@
 // ============================================
-// Stockfish Engine Manager - SIMPLIFIED & WORKING
+// Configuration & Constants
 // ============================================
 
-const StockfishEngine = {
-  worker: null,
-  ready: false,
-  
-  init() {
-    console.log('🚀 Initializing Stockfish Engine...');
+const CONFIG = {
+  // Engine Settings
+  ENGINE: {
+    HASH_SIZE: 128,
+    THREADS: 2,
+    SKILL_LEVEL: 20,
+    MULTI_PV: 3,
     
-    try {
-      // Create Web Worker with Blob
-      const blobCode = `importScripts('${CONFIG.STOCKFISH_URL}');`;
-      const blob = new Blob([blobCode], { type: 'application/javascript' });
-      const blobURL = URL.createObjectURL(blob);
-      
-      this.worker = new Worker(blobURL);
-      
-      // Cleanup blob URL after a delay
-      setTimeout(() => URL.revokeObjectURL(blobURL), 5000);
-      
-      // Setup message handler
-      this.worker.onmessage = (e) => {
-        const line = e.data;
-        if (line.indexOf('readyok') !== -1) {
-          this.ready = true;
-          console.log('✅ Stockfish ready!');
-          UIManager.updateStatus('Engine ready - Make moves or import PGN');
-        }
-      };
-      
-      // Initialize engine
-      this.worker.postMessage('uci');
-      this.worker.postMessage(`setoption name Hash value ${CONFIG.ENGINE.HASH_SIZE}`);
-      this.worker.postMessage(`setoption name Threads value ${CONFIG.ENGINE.THREADS}`);
-      this.worker.postMessage(`setoption name Skill Level value ${CONFIG.ENGINE.SKILL_LEVEL}`);
-      this.worker.postMessage('isready');
-      
-    } catch (e) {
-      console.error('❌ Stockfish init failed:', e);
-      UIManager.updateStatus('Engine failed to load');
-    }
+    // Analysis Depths
+    QUICK_DEPTH: 12,
+    STANDARD_DEPTH: 16,
+    DEEP_DEPTH: 20,
+    
+    // Timeouts
+    TIMEOUT_MS: 30000,  // Increased to 30 seconds
+    MOVE_DELAY_MS: 500  // Small delay between moves
   },
   
-  // Simple single evaluation
-  analyze(fen, depth = CONFIG.ENGINE.STANDARD_DEPTH) {
-    return new Promise((resolve, reject) => {
-      if (!this.worker || !this.ready) {
-        return reject('Engine not ready');
-      }
-      
-      const timeout = setTimeout(() => {
-        reject('Analysis timeout');
-      }, CONFIG.ENGINE.TIMEOUT_MS);
-      
-      const result = {
-        score: 0,
-        bestMove: null,
-        depth: 0
-      };
-      
-      let gotBestMove = false;
-      
-      const handler = (e) => {
-        const line = e.data;
-        
-        // Parse depth
-        if (line.indexOf('info depth') !== -1) {
-          const depthMatch = line.match(/depth (\d+)/);
-          if (depthMatch) {
-            result.depth = parseInt(depthMatch[1]);
-          }
-          
-          // Get score
-          if (line.indexOf('score cp') !== -1) {
-            const cpMatch = line.match(/score cp (-?\d+)/);
-            if (cpMatch) {
-              result.score = parseInt(cpMatch[1]);
-            }
-          } else if (line.indexOf('score mate') !== -1) {
-            const mateMatch = line.match(/score mate (-?\d+)/);
-            if (mateMatch) {
-              const mateIn = parseInt(mateMatch[1]);
-              result.score = mateIn > 0 ? 10000 : -10000;
-            }
-          }
-          
-          // Get best move from PV
-          if (line.indexOf(' pv ') !== -1) {
-            const pvMatch = line.match(/pv\s+(\S+)/);
-            if (pvMatch) {
-              result.bestMove = pvMatch[1];
-            }
-          }
-        }
-        
-        // Final bestmove
-        if (line.indexOf('bestmove') === 0) {
-          clearTimeout(timeout);
-          this.worker.onmessage = null;
-          gotBestMove = true;
-          
-          const parts = line.split(' ');
-          if (!result.bestMove && parts[1]) {
-            result.bestMove = parts[1];
-          }
-          
-          console.log('✅ Analysis complete:', result);
-          resolve(result);
-        }
-      };
-      
-      this.worker.onmessage = handler;
-      
-      // Send commands
-      this.worker.postMessage('ucinewgame');
-      this.worker.postMessage(`position fen ${fen}`);
-      this.worker.postMessage(`go depth ${depth}`);
-    });
-  }
+  // Move Classification Thresholds (Centipawns)
+  CLASSIFICATION: {
+    BOOK_MOVES: 10,        // First 10 moves are book
+    BEST_THRESHOLD: 15,    // ±15 cp
+    GREAT_THRESHOLD: 30,   // 15-30 cp loss
+    GOOD_THRESHOLD: 60,    // 30-60 cp loss
+    INACCURACY_THRESHOLD: 150,  // 60-150 cp loss
+    MISTAKE_THRESHOLD: 300,     // 150-300 cp loss
+    // Above 300 = Blunder
+    
+    // Brilliant Detection
+    BRILLIANT_SACRIFICE_MIN: 300,  // Minimum sacrifice value
+    BRILLIANT_EVAL_GAIN: 50,       // Minimum eval improvement
+    BRILLIANT_UNIQUENESS: 100      // Much better than 2nd best
+  },
+  
+  // Piece Values (Centipawns)
+  PIECE_VALUES: {
+    p: 100,
+    n: 320,
+    b: 330,
+    r: 500,
+    q: 900,
+    k: 0
+  },
+  
+  // Win Probability Calculation
+  WIN_PROB: {
+    COEFFICIENT: 0.00368208  // Chess.com standard
+  },
+  
+  // UI Settings
+  UI: {
+    EVAL_CLAMP_MIN: -1500,
+    EVAL_CLAMP_MAX: 1500,
+    GRAPH_MAX_POINTS: 100,
+    ANIMATION_DURATION: 300
+  },
+  
+  // Stockfish CDN
+  STOCKFISH_URL: 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js'
+};
+
+// Global State
+const STATE = {
+  game: null,
+  board: null,
+  moveHistory: [],
+  currentMoveIndex: -1,
+  analysisData: {},
+  gameMetadata: {
+    white: 'White',
+    black: 'Black',
+    whiteElo: '',
+    blackElo: '',
+    event: '',
+    date: ''
+  },
+  scrollLocked: false,
+  isAnalyzing: false,
+  evalChart: null
 };
