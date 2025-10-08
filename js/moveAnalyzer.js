@@ -12,6 +12,7 @@ const MoveAnalyzer = {
     }
     
     console.log(`🔍 Analyzing move ${moveIndex + 1}...`);
+    UIManager.updateStatus(`Analyzing move ${moveIndex + 1}...`);
     
     try {
       // Build position BEFORE the move
@@ -23,11 +24,11 @@ const MoveAnalyzer = {
       const prevFen = tempGame.fen();
       const move = STATE.moveHistory[moveIndex];
       
-      // Analyze position BEFORE move (deep analysis with MultiPV)
-      const prevAnalysis = await StockfishEngine.analyze(
-        prevFen, 
-        CONFIG.ENGINE.DEEP_DEPTH
-      );
+      // Small delay to prevent overwhelming engine
+      await new Promise(r => setTimeout(r, 100));
+      
+      // Analyze position BEFORE move
+      const prevAnalysis = await StockfishEngine.analyze(prevFen, 14);
       
       console.log(`📊 Before move ${moveIndex + 1}:`, prevAnalysis);
       
@@ -35,11 +36,11 @@ const MoveAnalyzer = {
       tempGame.move(move);
       const currFen = tempGame.fen();
       
+      // Small delay
+      await new Promise(r => setTimeout(r, 100));
+      
       // Analyze position AFTER move
-      const currAnalysis = await StockfishEngine.analyze(
-        currFen,
-        CONFIG.ENGINE.DEEP_DEPTH
-      );
+      const currAnalysis = await StockfishEngine.analyze(currFen, 14);
       
       console.log(`📊 After move ${moveIndex + 1}:`, currAnalysis);
       
@@ -71,7 +72,7 @@ const MoveAnalyzer = {
         evalBefore,
         evalAfter,
         materialLoss,
-        alternatives: prevAnalysis.alternatives,
+        alternatives: [],
         wasBestMove
       };
       
@@ -88,12 +89,10 @@ const MoveAnalyzer = {
         evalBefore,
         evalAfter,
         bestMove: prevAnalysis.bestMove,
-        alternatives: prevAnalysis.alternatives,
         wasBestMove,
         materialLoss,
         classification,
-        depth: prevAnalysis.depth,
-        mate: prevAnalysis.mate
+        depth: prevAnalysis.depth
       };
       
       STATE.analysisData[moveIndex] = analysisResult;
@@ -102,6 +101,7 @@ const MoveAnalyzer = {
       
     } catch (e) {
       console.error(`❌ Analysis error for move ${moveIndex + 1}:`, e);
+      UIManager.updateStatus(`Analysis error: ${e}`);
       throw e;
     }
   },
