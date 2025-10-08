@@ -257,22 +257,22 @@ Example:
     </div>
   </div>
 
-  <!-- Audio -->
-<audio id="moveSound" src="sounds/move.mp3"></audio>
-<audio id="captureSound" src="sounds/capture.mp3"></audio>
-<audio id="promoteSound" src="sounds/promote.mp3"></audio>
-<audio id="castlingSound" src="sounds/castling.mp3"></audio>
-<audio id="checkSound" src="sounds/check.mp3"></audio>
-<audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
-<audio id="incorrectMoveSound" src="sounds/incorrect-move.mp3"></audio>
+  <!-- Audio Elements -->
+  <audio id="moveSound" src="sounds/move.mp3"></audio>
+  <audio id="captureSound" src="sounds/capture.mp3"></audio>
+  <audio id="promoteSound" src="sounds/promote.mp3"></audio>
+  <audio id="castlingSound" src="sounds/castling.mp3"></audio>
+  <audio id="checkSound" src="sounds/check.mp3"></audio>
+  <audio id="checkmateSound" src="sounds/checkmate.mp3"></audio>
+  <audio id="incorrectMoveSound" src="sounds/incorrect-move.mp3"></audio>
 
-  <!-- External Scripts -->
+  <!-- External Scripts (LOAD ORDER IMPORTANT!) -->
   <script src="https://code.jquery.com/jquery-3.5.1.js"></script>
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
   <script src="js/chess.js"></script>
 
-  <!-- Application Scripts (Order matters!) -->
+  <!-- Application Scripts (EXACT ORDER!) -->
   <script src="js/config.js"></script>
   <script src="js/pieceResolver.js"></script>
   <script src="js/stockfishEngine.js"></script>
