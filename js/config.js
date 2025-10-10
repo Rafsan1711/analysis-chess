@@ -3,37 +3,37 @@
 // ============================================
 
 const CONFIG = {
-  // Engine Settings
+  // Engine Settings (Optimized for Accuracy)
   ENGINE: {
-    HASH_SIZE: 128,
-    THREADS: 2,
-    SKILL_LEVEL: 20,
-    MULTI_PV: 3,
+    HASH_SIZE: 256,        // Increased for better performance
+    THREADS: 4,            // More threads for complex positions
+    SKILL_LEVEL: 20,       // Maximum strength
+    MULTI_PV: 3,           // Top 3 moves for comparison
     
-    // Analysis Depths
-    QUICK_DEPTH: 12,
-    STANDARD_DEPTH: 16,
-    DEEP_DEPTH: 20,
+    // Analysis Depths (Chess.com uses 18-22)
+    QUICK_DEPTH: 12,       // Fast preliminary scan
+    STANDARD_DEPTH: 16,    // Standard analysis
+    DEEP_DEPTH: 20,        // Deep accurate analysis
     
     // Timeouts
-    TIMEOUT_MS: 15000,
-    MOVE_DELAY_MS: 100
+    TIMEOUT_MS: 30000,     // 30 seconds per position
+    MOVE_DELAY_MS: 500     // Delay between moves to prevent overload
   },
   
-  // Move Classification Thresholds (Centipawns)
+  // Move Classification Thresholds (Chess.com Exact)
   CLASSIFICATION: {
-    BOOK_MOVES: 10,        // First 10 moves are book
-    BEST_THRESHOLD: 15,    // ±15 cp
-    GREAT_THRESHOLD: 30,   // 15-30 cp loss
-    GOOD_THRESHOLD: 60,    // 30-60 cp loss
-    INACCURACY_THRESHOLD: 150,  // 60-150 cp loss
-    MISTAKE_THRESHOLD: 300,     // 150-300 cp loss
-    // Above 300 = Blunder
+    BOOK_MOVES: 10,        // First 10 moves in opening theory
+    BEST_THRESHOLD: 10,    // ±10 cp (Chess.com standard)
+    GREAT_THRESHOLD: 25,   // 10-25 cp loss
+    GOOD_THRESHOLD: 50,    // 25-50 cp loss
+    INACCURACY_THRESHOLD: 100,  // 50-100 cp loss
+    MISTAKE_THRESHOLD: 200,     // 100-200 cp loss
+    // Above 200 = Blunder
     
-    // Brilliant Detection
-    BRILLIANT_SACRIFICE_MIN: 300,  // Minimum sacrifice value
-    BRILLIANT_EVAL_GAIN: 50,       // Minimum eval improvement
-    BRILLIANT_UNIQUENESS: 100      // Much better than 2nd best
+    // Brilliant Detection (very strict, <0.5% of moves)
+    BRILLIANT_SACRIFICE_MIN: 300,  // Must sacrifice at least minor piece
+    BRILLIANT_EVAL_GAIN: 50,       // Must gain significant advantage
+    BRILLIANT_UNIQUENESS: 80       // Must be significantly better than alternatives
   },
   
   // Piece Values (Centipawns)
@@ -81,4 +81,4 @@ const STATE = {
   scrollLocked: false,
   isAnalyzing: false,
   evalChart: null
-};
+    };
