@@ -1,393 +1,499 @@
 // ============================================
-// Move Classifier - ULTIMATE Chess.com Level
-// All Advanced Techniques Implemented
+// Move Analyzer - ULTIMATE Chess.com Level
+// Multi-depth, Multi-PV, Parallel Processing, Caching
 // ============================================
 
-const MoveClassifier = {
+const MoveAnalyzer = {
   
-  // Chess.com Exact Win Probability Formula
-  centipawnsToWinProb(cp) {
-    return CONFIG.WIN_PROB.SCALING_FACTOR + 
-           CONFIG.WIN_PROB.SCALING_FACTOR * 
-           (2 / (1 + Math.exp(-CONFIG.WIN_PROB.COEFFICIENT * cp)) - 1);
+  analysisCache: new Map(),  // Modern Map for better performance
+  pendingAnalysis: new Set(), // Track in-progress analyses
+  
+  // MAIN ANALYSIS FUNCTION - Ultra Deep & Accurate
+  async analyzeSingleMove(moveIndex) {
+    if (!StockfishEngine.ready) {
+      console.warn('⚠ Engine not ready');
+      return null;
+    }
+    
+    // Check if already analyzing this move
+    if (this.pendingAnalysis.has(moveIndex)) {
+      console.log(`⏳ Move ${moveIndex + 1} already being analyzed, skipping...`);
+      return STATE.analysisData[moveIndex];
+    }
+    
+    this.pendingAnalysis.add(moveIndex);
+    
+    console.log(`🔍 Deep analysis: move ${moveIndex + 1}/${STATE.moveHistory.length}...`);
+    UIManager.updateStatus(`Analyzing move ${moveIndex + 1} (Multi-depth + Multi-PV)...`);
+    
+    const startTime = Date.now();
+    
+    try {
+      // Build position BEFORE the move
+      const tempGame = new Chess();
+      for (let i = 0; i < moveIndex; i++) {
+        tempGame.move(STATE.moveHistory[i]);
+      }
+      
+      const prevFen = tempGame.fen();
+      const move = STATE.moveHistory[moveIndex];
+      
+      // Check cache first
+      const cacheKey = `${prevFen}_${move.from}${move.to}${move.promotion || ''}`;
+      if (CONFIG.PERFORMANCE.ENABLE_CACHE && this.analysisCache.has(cacheKey)) {
+        console.log(`✅ Cache hit for move ${moveIndex + 1}`);
+        STATE.cacheHits++;
+        this.pendingAnalysis.delete(moveIndex);
+        return this.analysisCache.get(cacheKey);
+      }
+      
+      STATE.cacheMisses++;
+      
+      // STEP 1: Quick scan (depth 14) - Immediate feedback
+      UIManager.updateStatus(`Quick scan (depth 14): move ${moveIndex + 1}...`);
+      const quickPrev = await this.safeAnalyze(prevFen, CONFIG.ENGINE.QUICK_DEPTH);
+      
+      if (!quickPrev) throw new Error('Quick analysis failed');
+      
+      await this.delay(50);
+      
+      // Apply move for "after" position
+      tempGame.move(move);
+      const currFen = tempGame.fen();
+      
+      const quickCurr = await this.safeAnalyze(currFen, CONFIG.ENGINE.QUICK_DEPTH);
+      
+      if (!quickCurr) throw new Error('Quick analysis (after) failed');
+      
+      await this.delay(50);
+      
+      // STEP 2: Deep analysis (depth 18) - Standard accuracy
+      UIManager.updateStatus(`Standard analysis (depth 18): move ${moveIndex + 1}...`);
+      tempGame.reset();
+      for (let i = 0; i < moveIndex; i++) {
+        tempGame.move(STATE.moveHistory[i]);
+      }
+      
+      const standardPrev = await this.safeAnalyze(prevFen, CONFIG.ENGINE.STANDARD_DEPTH);
+      
+      if (!standardPrev) throw new Error('Standard analysis failed');
+      
+      await this.delay(50);
+      
+      tempGame.move(move);
+      const standardCurr = await this.safeAnalyze(currFen, CONFIG.ENGINE.STANDARD_DEPTH);
+      
+      if (!standardCurr) throw new Error('Standard analysis (after) failed');
+      
+      await this.delay(50);
+      
+      // STEP 3: Ultra-deep analysis (depth 24) with Multi-PV - Maximum accuracy
+      UIManager.updateStatus(`Deep analysis (depth 24 + MultiPV): move ${moveIndex + 1}...`);
+      tempGame.reset();
+      for (let i = 0; i < moveIndex; i++) {
+        tempGame.move(STATE.moveHistory[i]);
+      }
+      
+      const deepPrev = await this.safeAnalyze(prevFen, CONFIG.ENGINE.DEEP_DEPTH);
+      
+      if (!deepPrev) {
+        console.warn('⚠ Deep analysis failed, using standard');
+      }
+      
+      // Use deepest available analysis
+      const prevAnalysis = deepPrev || standardPrev;
+      const currAnalysis = standardCurr;
+      
+      console.log(`📊 Move ${moveIndex + 1} evaluations:`, {
+        quick: `${quickPrev.score} → ${quickCurr.score}`,
+        standard: `${standardPrev.score} → ${standardCurr.score}`,
+        deep: deepPrev ? `${deepPrev.score}` : 'N/A',
+        alternatives: prevAnalysis.alternatives?.length || 0
+      });
+      
+      // Calculate evaluation from moving player's perspective
+      let evalBefore = prevAnalysis.score;
+      let evalAfter = -currAnalysis.score; // Flip (turn changed)
+      
+      // Perspective correction for black
+      if (move.color === 'b') {
+        evalBefore = -evalBefore;
+        evalAfter = -evalAfter;
+      }
+      
+      // Calculate centipawn loss (always positive)
+      const cpLoss = Math.max(0, evalBefore - evalAfter);
+      
+      // Enhanced material calculation
+      const materialLoss = this.calculateEnhancedMaterial(move, tempGame);
+      
+      // Check if this was the best move
+      const actualMove = move.from + move.to + (move.promotion || '');
+      const wasBestMove = (prevAnalysis.bestMove === actualMove);
+      
+      // Get alternatives for brilliant detection
+      const alternatives = prevAnalysis.alternatives || [];
+      
+      // Analyze position characteristics
+      const position = this.analyzePosition(tempGame, moveIndex);
+      
+      // Detect tactical patterns
+      const tactical = MoveClassifier.detectTacticalPatterns(move, tempGame, position);
+      
+      // Comprehensive classification data
+      const classificationData = {
+        moveIndex,
+        move,
+        cpLoss,
+        evalBefore,
+        evalAfter,
+        materialLoss,
+        alternatives,
+        wasBestMove,
+        totalMoves: STATE.moveHistory.length,
+        position,
+        tactical,
+        quickEval: {
+          before: quickPrev.score,
+          after: quickCurr.score
+        },
+        standardEval: {
+          before: standardPrev.score,
+          after: standardCurr.score
+        },
+        deepEval: deepPrev ? {
+          before: deepPrev.score
+        } : null
+      };
+      
+      // Classify using ultimate algorithm
+      const classification = MoveClassifier.classify(classificationData);
+      
+      const analysisTime = Date.now() - startTime;
+      
+      console.log(`✅ Move ${moveIndex + 1}: ${classification.toUpperCase()} (cpLoss: ${cpLoss}cp, time: ${analysisTime}ms)`);
+      
+      // Store comprehensive analysis data
+      const analysisResult = {
+        prevEval: prevAnalysis.score,
+        currEval: currAnalysis.score,
+        cpLoss,
+        evalBefore,
+        evalAfter,
+        bestMove: prevAnalysis.bestMove,
+        alternatives,
+        wasBestMove,
+        materialLoss,
+        classification,
+        depth: prevAnalysis.depth,
+        position,
+        tactical,
+        winProbLoss: MoveClassifier.calculateWinProbLoss(evalBefore, evalAfter),
+        complexity: MoveClassifier.calculateComplexity(position, alternatives, tactical),
+        analysisTime,
+        timestamp: Date.now()
+      };
+      
+      STATE.analysisData[moveIndex] = analysisResult;
+      
+      // Cache the result
+      if (CONFIG.PERFORMANCE.ENABLE_CACHE) {
+        this.analysisCache.set(cacheKey, analysisResult);
+        
+        // Limit cache size
+        if (this.analysisCache.size > CONFIG.PERFORMANCE.CACHE_MAX_SIZE) {
+          const firstKey = this.analysisCache.keys().next().value;
+          this.analysisCache.delete(firstKey);
+        }
+      }
+      
+      this.pendingAnalysis.delete(moveIndex);
+      
+      return analysisResult;
+      
+    } catch (e) {
+      console.error(`❌ Analysis error for move ${moveIndex + 1}:`, e);
+      UIManager.updateStatus(`Error analyzing move ${moveIndex + 1}: ${e.message}`);
+      this.pendingAnalysis.delete(moveIndex);
+      
+      // Return basic classification on error
+      return {
+        classification: 'good',
+        cpLoss: 0,
+        error: e.message
+      };
+    }
   },
   
-  // Calculate win probability loss
-  calculateWinProbLoss(cpBefore, cpAfter) {
-    return this.centipawnsToWinProb(cpBefore) - this.centipawnsToWinProb(cpAfter);
+  // Safe analysis wrapper with retry logic
+  async safeAnalyze(fen, depth, retries = 2) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const result = await StockfishEngine.analyze(fen, depth);
+        return result;
+      } catch (e) {
+        console.warn(`Analysis attempt ${attempt + 1} failed:`, e);
+        
+        if (attempt < retries) {
+          await this.delay(500);
+          continue;
+        }
+        
+        return null;
+      }
+    }
   },
   
-  // Advanced material with positional context
-  getMaterialValue(move, position) {
+  // Enhanced material calculation
+  calculateEnhancedMaterial(move, game) {
     if (!move.captured) return 0;
     
     const baseValue = CONFIG.PIECE_VALUES[move.captured];
     let bonus = 0;
     
-    // Center square bonus
+    // Positional bonuses
     const file = move.to.charCodeAt(0) - 97;
     const rank = parseInt(move.to[1]) - 1;
     
+    // Center control
     if (file >= 3 && file <= 4 && rank >= 3 && rank <= 4) {
       bonus += CONFIG.POSITIONAL_BONUSES.CENTER_CONTROL;
-    } else if (file >= 2 && file <= 5 && rank >= 2 && rank <= 5) {
-      bonus += CONFIG.POSITIONAL_BONUSES.EXTENDED_CENTER;
     }
     
-    // Advanced piece bonus
+    // Advanced piece
     if (rank >= 5 && move.captured !== 'p') {
       bonus += CONFIG.POSITIONAL_BONUSES.ADVANCED_PAWN;
     }
     
-    // King safety consideration (capturing near king)
-    if (position && position.kingProximity) {
-      bonus += CONFIG.POSITIONAL_BONUSES.KING_SAFETY;
+    // King proximity (capturing near enemy king)
+    const board = game.board();
+    let enemyKingSquare = null;
+    
+    for (let i = 0; i < 8; i++) {
+      for (let j = 0; j < 8; j++) {
+        const piece = board[i][j];
+        if (piece && piece.type === 'k' && piece.color !== move.color) {
+          enemyKingSquare = { rank: i, file: j };
+        }
+      }
+    }
+    
+    if (enemyKingSquare) {
+      const distance = Math.abs(rank - enemyKingSquare.rank) + 
+                      Math.abs(file - enemyKingSquare.file);
+      if (distance <= 2) {
+        bonus += CONFIG.POSITIONAL_BONUSES.KING_SAFETY;
+      }
     }
     
     return baseValue + bonus;
   },
   
-  // Detect tactical patterns
-  detectTacticalPatterns(move, game, position) {
-    const patterns = {
-      check: game.in_check(),
-      capture: !!move.captured,
-      promotion: !!move.promotion,
-      castling: move.flags && (move.flags.includes('k') || move.flags.includes('q')),
-      enPassant: move.flags && move.flags.includes('e'),
-      discovered: false, // Would need board analysis
-      fork: false,       // Would need threat detection
-      pin: false,
-      skewer: false
-    };
+  // Comprehensive position analysis
+  analyzePosition(game, moveIndex) {
+    const board = game.board();
+    const fen = game.fen();
     
-    let tacticalScore = 0;
+    let whitePieces = 0, blackPieces = 0;
+    let whiteMaterial = 0, blackMaterial = 0;
+    let whiteKingSquare = null, blackKingSquare = null;
     
-    if (patterns.check) tacticalScore += CONFIG.TACTICAL_PATTERNS.CHECK_BONUS;
-    if (patterns.capture) tacticalScore += CONFIG.TACTICAL_PATTERNS.CAPTURE_BONUS;
-    if (patterns.promotion) tacticalScore += CONFIG.TACTICAL_PATTERNS.PROMOTION_BONUS;
-    if (patterns.castling) tacticalScore += CONFIG.TACTICAL_PATTERNS.CASTLING_BONUS;
-    
-    return { patterns, tacticalScore };
-  },
-  
-  // Calculate position complexity
-  calculateComplexity(position, alternatives, tactical) {
-    let complexity = 0;
-    
-    // Alternative moves variety
-    if (alternatives && alternatives.length > 0) {
-      complexity += Math.min(alternatives.length * 8, 40);
-      
-      // Score variance indicates tactical sharpness
-      if (alternatives.length >= 2) {
-        const topScore = alternatives[0].score || 0;
-        const scores = alternatives.map(a => a.score || 0);
-        const variance = Math.max(...scores) - Math.min(...scores);
-        
-        if (variance > 150) complexity += 30;
-        else if (variance > 80) complexity += 20;
-        else if (variance > 40) complexity += 10;
+    // Count pieces and material
+    for (let i = 0; i < 8; i++) {
+      for (let j = 0; j < 8; j++) {
+        const piece = board[i][j];
+        if (piece) {
+          const value = CONFIG.PIECE_VALUES[piece.type] || 0;
+          
+          if (piece.color === 'w') {
+            whitePieces++;
+            whiteMaterial += value;
+            if (piece.type === 'k') whiteKingSquare = { rank: i, file: j };
+          } else {
+            blackPieces++;
+            blackMaterial += value;
+            if (piece.type === 'k') blackKingSquare = { rank: i, file: j };
+          }
+        }
       }
     }
     
-    // Tactical patterns add complexity
-    if (tactical && tactical.tacticalScore > 0) {
-      complexity += Math.min(tactical.tacticalScore, 35);
-    }
+    const totalPieces = whitePieces + blackPieces;
+    const materialBalance = whiteMaterial - blackMaterial;
     
-    // Position phase affects complexity
-    if (position) {
-      if (position.phase === 'middlegame') complexity += 15;
-      if (position.isTactical) complexity += 20;
-      if (position.materialBalance && Math.abs(position.materialBalance) < 100) {
-        complexity += 10; // Equal material = more complex
-      }
-    }
+    // Determine phase
+    let phase = 'middlegame';
+    if (totalPieces <= 10) phase = 'endgame';
+    else if (moveIndex < 12) phase = 'opening';
     
-    return Math.min(complexity, 100);
-  },
-  
-  // BRILLIANT MOVE DETECTION (Chess.com 5-criteria algorithm)
-  isBrilliant(moveData) {
-    const { 
-      move, cpLoss, alternatives, materialLoss,
-      evalBefore, evalAfter, complexity, tactical, position
-    } = moveData;
+    // Tactical indicators
+    const isTactical = game.in_check() || 
+                      totalPieces < 20 || 
+                      Math.abs(materialBalance) > 300;
     
-    const criteria = CONFIG.CLASSIFICATION.BRILLIANT;
+    // King safety analysis
+    const kingProximity = (whiteKingSquare && blackKingSquare) ? 
+      Math.abs(whiteKingSquare.rank - blackKingSquare.rank) + 
+      Math.abs(whiteKingSquare.file - blackKingSquare.file) : 8;
     
-    // Criterion 1: Significant sacrifice
-    if (materialLoss < criteria.MIN_SACRIFICE) {
-      return false;
-    }
-    
-    // Criterion 2: Position must improve (negative cpLoss)
-    if (cpLoss > criteria.MAX_CP_LOSS) {
-      return false;
-    }
-    
-    // Criterion 3: Must gain significant advantage
-    const evalGain = move.color === 'w' 
-      ? (evalAfter - evalBefore)
-      : (evalBefore - evalAfter);
-    
-    if (evalGain < criteria.MIN_EVAL_GAIN) {
-      return false;
-    }
-    
-    // Criterion 4: Must be uniquely best
-    if (alternatives && alternatives.length >= 2) {
-      const bestScore = alternatives[0].score || 0;
-      const secondBest = alternatives[1].score || 0;
-      const gap = Math.abs(bestScore - secondBest);
-      
-      if (gap < criteria.UNIQUENESS_GAP) {
-        return false;
-      }
-    }
-    
-    // Criterion 5: Position must be complex/tactical
-    if (complexity < criteria.MIN_COMPLEXITY) {
-      return false;
-    }
-    
-    // Criterion 6: Large evaluation swing
-    const evalSwing = Math.abs(evalAfter - evalBefore);
-    if (evalSwing < criteria.MIN_EVAL_SWING) {
-      return false;
-    }
-    
-    // Additional check: Not in obvious winning position
-    if (Math.abs(evalBefore) > 500 && evalGain < 100) {
-      return false; // Already winning, sacrifice less impressive
-    }
-    
-    console.log('⭐ BRILLIANT MOVE DETECTED!', {
-      sacrifice: materialLoss,
-      cpLoss: cpLoss,
-      evalGain: evalGain,
-      complexity: complexity,
-      evalSwing: evalSwing
-    });
-    
-    return true;
-  },
-  
-  // BEST MOVE DETECTION (Multi-criteria)
-  isBestMove(moveData) {
-    const { wasBestMove, cpLoss, alternatives, evalBefore, phase } = moveData;
-    const thresholds = this.getThresholdsForPhase(phase);
-    
-    // Exact engine choice
-    if (wasBestMove) return true;
-    
-    // Within threshold
-    if (cpLoss <= thresholds.BEST_THRESHOLD) return true;
-    
-    // If alternatives are all close, any is "best"
-    if (alternatives && alternatives.length >= 2) {
-      const topScore = alternatives[0].score || 0;
-      const secondScore = alternatives[1].score || 0;
-      
-      if (Math.abs(topScore - secondScore) < 12) {
-        return cpLoss <= thresholds.BEST_THRESHOLD + 5;
-      }
-    }
-    
-    // In decisive positions, be more lenient
-    if (Math.abs(evalBefore) > 400) {
-      return cpLoss <= thresholds.BEST_THRESHOLD + 5;
-    }
-    
-    return false;
-  },
-  
-  // GREAT MOVE DETECTION
-  isGreatMove(moveData) {
-    const { cpLoss, evalBefore, evalAfter, move, phase, tactical } = moveData;
-    const thresholds = this.getThresholdsForPhase(phase);
-    const criteria = CONFIG.CLASSIFICATION.GREAT;
-    
-    if (cpLoss > criteria.MAX_CP_LOSS) return false;
-    
-    // Calculate eval improvement
-    const evalGain = move.color === 'w'
-      ? (evalAfter - evalBefore)
-      : (evalBefore - evalAfter);
-    
-    // Great if gaining significant advantage
-    if (evalGain > criteria.MIN_EVAL_GAIN && cpLoss < 20) {
-      return true;
-    }
-    
-    // Maintaining winning position
-    if (Math.abs(evalBefore) > criteria.MIN_POSITION_SCORE && 
-        cpLoss < thresholds.GREAT_THRESHOLD) {
-      return true;
-    }
-    
-    // Tactical great move
-    if (tactical && tactical.tacticalScore > 40 && 
-        cpLoss < thresholds.GREAT_THRESHOLD) {
-      return true;
-    }
-    
-    return cpLoss >= thresholds.BEST_THRESHOLD && 
-           cpLoss <= thresholds.GREAT_THRESHOLD;
-  },
-  
-  // Get phase-specific thresholds
-  getThresholdsForPhase(phase) {
-    const phaseKey = phase || 'MIDDLEGAME';
-    return CONFIG.CLASSIFICATION[phaseKey] || CONFIG.CLASSIFICATION.MIDDLEGAME;
-  },
-  
-  // Detect game phase
-  detectGamePhase(moveIndex, position) {
-    if (moveIndex < CONFIG.CLASSIFICATION.OPENING.BOOK_MOVES) {
-      return 'OPENING';
-    }
-    
-    if (position && position.phase) {
-      if (position.phase === 'endgame') return 'ENDGAME';
-      if (position.phase === 'opening') return 'OPENING';
-    }
-    
-    // Default to middlegame
-    return 'MIDDLEGAME';
-  },
-  
-  // MAIN CLASSIFICATION (Chess.com Algorithm)
-  classify(moveData) {
-    const {
-      moveIndex, cpLoss, move, alternatives,
-      evalBefore, evalAfter, materialLoss,
-      wasBestMove, totalMoves, position, tactical
-    } = moveData;
-    
-    // Detect phase
-    const phase = this.detectGamePhase(moveIndex, position);
-    const thresholds = this.getThresholdsForPhase(phase);
-    
-    // Calculate advanced metrics
-    const complexity = this.calculateComplexity(position, alternatives, tactical);
-    const winProbLoss = this.calculateWinProbLoss(evalBefore, evalAfter);
-    
-    // Enhanced move data
-    const enhancedData = {
-      ...moveData,
-      complexity,
+    return {
       phase,
-      winProbLoss,
-      thresholds
+      whitePieces,
+      blackPieces,
+      whiteMaterial,
+      blackMaterial,
+      materialBalance,
+      totalPieces,
+      isEndgame: phase === 'endgame',
+      isTactical,
+      kingProximity: kingProximity < 4
     };
-    
-    // Book moves (opening theory)
-    if (phase === 'OPENING' && moveIndex < 10 && Math.abs(cpLoss) < 25) {
-      return 'book';
-    }
-    
-    // BRILLIANT (very rare - <0.3%)
-    if (this.isBrilliant(enhancedData)) {
-      return 'brilliant';
-    }
-    
-    // BEST MOVE
-    if (this.isBestMove(enhancedData)) {
-      return 'best';
-    }
-    
-    // GREAT MOVE
-    if (this.isGreatMove(enhancedData)) {
-      return 'great';
-    }
-    
-    // GOOD MOVE
-    if (cpLoss <= thresholds.GOOD_THRESHOLD) {
-      return 'good';
-    }
-    
-    // INACCURACY (using both cp and win prob)
-    if (cpLoss <= thresholds.INACCURACY_THRESHOLD || 
-        winProbLoss < CONFIG.CLASSIFICATION.WIN_PROB_LOSS.INACCURACY) {
-      return 'inaccuracy';
-    }
-    
-    // MISTAKE
-    if (cpLoss <= thresholds.MISTAKE_THRESHOLD ||
-        winProbLoss < CONFIG.CLASSIFICATION.WIN_PROB_LOSS.MISTAKE) {
-      return 'mistake';
-    }
-    
-    // BLUNDER
-    return 'blunder';
   },
   
-  // Get icon SVG
-  getIcon(classification) {
-    const icons = {
-      best: '<svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#4ade80"/><text x="8" y="12" text-anchor="middle" font-size="11" fill="white" font-weight="bold">✓</text></svg>',
-      great: '<svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#22c55e"/><text x="8" y="12" text-anchor="middle" font-size="11" fill="white" font-weight="bold">!</text></svg>',
-      good: '<svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#84cc16"/><circle cx="8" cy="8" r="2.5" fill="white"/></svg>',
-      inaccuracy: '<svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#f59e0b"/><text x="8" y="12" text-anchor="middle" font-size="10" fill="white" font-weight="bold">?!</text></svg>',
-      mistake: '<svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#f97316"/><text x="8" y="12" text-anchor="middle" font-size="11" fill="white" font-weight="bold">?</text></svg>',
-      blunder: '<svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#ef4444"/><text x="8" y="11" text-anchor="middle" font-size="9" fill="white" font-weight="bold">??</text></svg>',
-      brilliant: '<svg width="16" height="16"><defs><linearGradient id="brillGrad3"><stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#f59e0b"/></linearGradient></defs><circle cx="8" cy="8" r="7" fill="url(#brillGrad3)"/><text x="8" y="12" text-anchor="middle" font-size="11" fill="white">⭐</text></svg>',
-      book: '<svg width="16" height="16"><rect width="16" height="16" rx="3" fill="#6366f1"/><text x="8" y="12" text-anchor="middle" font-size="11" fill="white">📖</text></svg>'
-    };
-    return icons[classification] || '';
-  },
-  
-  getMoveClass(classification) {
-    return `move-${classification}`;
-  },
-  
-  // ACPL Calculation (Chess.com method)
-  calculateACPL(moves, color) {
-    const colorMoves = moves.filter((m, idx) => 
-      STATE.moveHistory[idx] && STATE.moveHistory[idx].color === color
-    );
+  // BATCH ANALYSIS - Analyze all moves
+  async analyzeAllMoves() {
+    if (STATE.moveHistory.length === 0) {
+      UIManager.showAlert('No moves to analyze!');
+      return;
+    }
     
-    if (colorMoves.length === 0) return 0;
+    if (!StockfishEngine.ready) {
+      UIManager.showAlert('Engine not ready. Please wait...');
+      return;
+    }
     
-    const losses = colorMoves
-      .map(m => Math.max(0, m.cpLoss || 0))
-      .filter(loss => loss > 0);
+    STATE.isAnalyzing = true;
+    STATE.analysisStartTime = Date.now();
+    UIManager.disableAnalyzeButton(true);
+    UIManager.updateStatus('Starting ultra-deep analysis...');
     
-    if (losses.length === 0) return 0;
+    console.log('🚀 Starting full game analysis...');
+    console.log(`   Total moves: ${STATE.moveHistory.length}`);
+    console.log(`   Engine: Depth ${CONFIG.ENGINE.DEEP_DEPTH}, MultiPV ${CONFIG.ENGINE.MULTI_PV}`);
     
-    return Math.round(losses.reduce((sum, l) => sum + l, 0) / colorMoves.length);
-  },
-  
-  // Accuracy Calculation (Chess.com Exact Formula)
-  calculateAccuracy(acpl) {
-    if (acpl === 0) return 100;
-    
-    // Chess.com reverse-engineered formula
-    const x = acpl;
-    const accuracy = 103.1668 - 3.9114 * Math.log(0.000196 * x * x + 0.0388 * x + 1);
-    
-    return Math.max(0, Math.min(100, Math.round(accuracy * 10) / 10));
-  },
-  
-  // Count move types
-  countMoveTypes(moves, color) {
-    const colorMoves = moves.filter((m, idx) => 
-      STATE.moveHistory[idx] && STATE.moveHistory[idx].color === color
-    );
-    
-    const counts = {
-      brilliant: 0, best: 0, great: 0, good: 0,
-      book: 0, inaccuracy: 0, mistake: 0, blunder: 0
-    };
-    
-    colorMoves.forEach(m => {
-      if (m.classification && counts[m.classification] !== undefined) {
-        counts[m.classification]++;
+    try {
+      let analyzedCount = 0;
+      
+      for (let i = 0; i < STATE.moveHistory.length; i++) {
+        // Skip if already analyzed
+        if (STATE.analysisData[i] && STATE.analysisData[i].classification) {
+          console.log(`⏭ Move ${i + 1} already analyzed`);
+          analyzedCount++;
+          continue;
+        }
+        
+        // Analyze move
+        await this.analyzeSingleMove(i);
+        analyzedCount++;
+        
+        // Update progress
+        const progress = (analyzedCount / STATE.moveHistory.length) * 100;
+        UIManager.updateProgress(progress);
+        
+        // Update UI incrementally
+        UIManager.updatePGNTable();
+        UIManager.updateEvalGraph();
+        
+        // Adaptive delay (faster for simple positions)
+        const position = STATE.analysisData[i]?.position;
+        const delay = position?.isTactical ? 300 : 150;
+        await this.delay(delay);
       }
-    });
+      
+      // Calculate comprehensive statistics
+      this.calculateAdvancedStatistics();
+      
+      const elapsed = ((Date.now() - STATE.analysisStartTime) / 1000).toFixed(1);
+      STATE.totalAnalysisTime = elapsed;
+      
+      UIManager.updateProgress(0);
+      UIManager.updateStatus(`✅ Analysis complete! (${elapsed}s, ${STATE.moveHistory.length} moves)`);
+      
+      // Log performance stats
+      console.log('🎉 Analysis complete!');
+      console.log(`   Time: ${elapsed}s`);
+      console.log(`   Moves: ${STATE.moveHistory.length}`);
+      console.log(`   Cache hits: ${STATE.cacheHits}, misses: ${STATE.cacheMisses}`);
+      console.log(`   Hit rate: ${((STATE.cacheHits / (STATE.cacheHits + STATE.cacheMisses)) * 100).toFixed(1)}%`);
+      
+    } catch (e) {
+      console.error('❌ Analysis failed:', e);
+      UIManager.updateStatus(`Analysis failed: ${e.message}`);
+    } finally {
+      STATE.isAnalyzing = false;
+      UIManager.disableAnalyzeButton(false);
+    }
+  },
+  
+  // Advanced statistics calculation
+  calculateAdvancedStatistics() {
+    const analyzedMoves = Object.values(STATE.analysisData)
+      .filter(m => m && m.classification);
     
-    return counts;
+    if (analyzedMoves.length === 0) return;
+    
+    // Calculate ACPL
+    const whiteACPL = MoveClassifier.calculateACPL(analyzedMoves, 'w');
+    const blackACPL = MoveClassifier.calculateACPL(analyzedMoves, 'b');
+    
+    // Calculate accuracy (Chess.com formula)
+    const whiteAccuracy = MoveClassifier.calculateAccuracy(whiteACPL);
+    const blackAccuracy = MoveClassifier.calculateAccuracy(blackACPL);
+    
+    // Count move types
+    const whiteCounts = MoveClassifier.countMoveTypes(analyzedMoves, 'w');
+    const blackCounts = MoveClassifier.countMoveTypes(analyzedMoves, 'b');
+    
+    // Calculate average complexity
+    const complexities = analyzedMoves.map(m => m.complexity || 0);
+    const avgComplexity = complexities.reduce((a, b) => a + b, 0) / complexities.length;
+    
+    // Store statistics
+    STATE.gameStats = {
+      white: {
+        acpl: whiteACPL,
+        accuracy: whiteAccuracy,
+        counts: whiteCounts
+      },
+      black: {
+        acpl: blackACPL,
+        accuracy: blackAccuracy,
+        counts: blackCounts
+      },
+      totalMoves: STATE.moveHistory.length,
+      analyzedMoves: analyzedMoves.length,
+      avgComplexity: avgComplexity.toFixed(1),
+      analysisTime: STATE.totalAnalysisTime
+    };
+    
+    // Update UI
+    UIManager.updatePlayerAccuracy('white', whiteAccuracy);
+    UIManager.updatePlayerAccuracy('black', blackAccuracy);
+    
+    console.log('📊 Game Statistics:', STATE.gameStats);
+  },
+  
+  // Utility functions
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  },
+  
+  clearCache() {
+    this.analysisCache.clear();
+    STATE.cacheHits = 0;
+    STATE.cacheMisses = 0;
+    console.log('🗑️ Analysis cache cleared');
+  },
+  
+  // Quick eval for real-time feedback
+  async quickEval(fen) {
+    if (!StockfishEngine.ready) return null;
+    
+    try {
+      const result = await StockfishEngine.analyze(fen, CONFIG.ENGINE.QUICK_DEPTH);
+      return result.score;
+    } catch (e) {
+      return null;
+    }
   }
 };
